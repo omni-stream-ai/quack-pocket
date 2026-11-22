@@ -3,6 +3,7 @@
  * Reference: https://modelcontextprotocol.io/specification/2024-11-05
  */
 
+#include "voice/control_policy.h"
 #include "mcp_server.h"
 #include <esp_log.h>
 #include <esp_app_desc.h>
@@ -476,7 +477,7 @@ void McpServer::GetToolsList(int id, const std::string& cursor, bool list_user_o
             }
         }
 
-        if (!list_user_only_tools && (*it)->user_only()) {
+        if ((!list_user_only_tools && (*it)->user_only()) || !voice_control::ToolEnabled((*it)->name())) {
             ++it;
             continue;
         }
@@ -519,6 +520,10 @@ void McpServer::DoToolCall(int id, const std::string& tool_name, const cJSON* to
                                      return tool->name() == tool_name; 
                                  });
     
+    if (!voice_control::ToolEnabled(tool_name)) {
+        ReplyError(id, "Disabled in voice settings");
+        return;
+    }
     if (tool_iter == tools_.end()) {
         ESP_LOGE(TAG, "tools/call: Unknown tool: %s", tool_name.c_str());
         ReplyError(id, "Unknown tool: " + tool_name);

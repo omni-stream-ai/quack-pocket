@@ -27,9 +27,9 @@ button{background:var(--accent);border:0;border-radius:.6rem;cursor:pointer;marg
 #install{width:auto;background:#fff;color:var(--accent);border:1px solid var(--line)}
 </style></head><body>
 <header><div class="brand"><img id="brandIcon" width="80" height="80" alt=""><div><h1>嘎嘎口袋</h1><p>设备设置 · 网络、语音与墨水屏</p></div></div><p id="connection" role="status">准备连接设备…</p><button id="install" hidden>安装嘎嘎口袋</button></header>
-<section class="guide" id="guide" hidden><h2>连接附近的设备</h2><p>在墨水屏主菜单打开「手机配网与模型」，然后选择与屏幕同名的 Omni 设备。</p>
+<section class="guide" id="guide" hidden><h2>连接附近的设备</h2><p>打开手机蓝牙，点「选择蓝牙设备」，选择附近的 Omni 设备。若列表为空，请检查鸭子「手机与网络 → 蓝牙开关」是否开启。</p>
 <p>系统提示配对时，输入墨水屏上「蓝牙配对」旁的<strong>六位数字</strong>。</p><button id="connect">选择蓝牙设备</button><p id="feedback" role="status"></p>
-<p>同一 Wi-Fi 下，也可在设备主菜单选择「同网扫码管理」，扫描屏幕上的网址。</p>
+<p>同一 Wi-Fi 下，也可在设备主菜单选择「手机与网络 → 同网扫码管理」，扫描屏幕上的网址。</p>
 <details><summary>用设备热点打开设置</summary>扫描墨水屏上的 Wi-Fi 二维码，加入热点后打开 <a href="http://192.168.4.1/">192.168.4.1</a>。</details></section>
 <section class="guide" id="authorization" hidden><h2>授权此浏览器</h2>
 <label>在鸭子上显示的名称<input id="browserName" maxlength="16" placeholder="例如：妈妈的手机"></label>
@@ -45,19 +45,36 @@ button{background:var(--accent);border:0;border-radius:.6rem;cursor:pointer;marg
 <details><summary id="savedCount">已保存的网络</summary><div id="savedWifi"></div></details>
 <small id="wifiStatus" role="status"></small>
 </fieldset>
-<fieldset id="service"><legend>语音服务</legend>
+<fieldset id="service"><legend>服务连接</legend>
 <label>连接方式<select id="mode"><option value="default">小智服务</option><option value="custom">自建语音网关</option></select></label>
 <p id="xiaozhiHelp">保存并联网后，若设备显示激活码，请在手机恢复上网后登录<a href="https://xiaozhi.me/console/" target="_blank" rel="noopener noreferrer">小智官方控制台</a>，按提示绑定设备并配置智能体。网址为 xiaozhi.me/console/。</p>
 <div id="custom" hidden>
 <label>网关地址<input id="url" placeholder="wss://voice.example.com/device" maxlength="384" autocomplete="off"></label>
 <label>设备令牌<input id="token" type="password" maxlength="512" autocomplete="new-password"></label>
-<label>对话模型<input id="model" maxlength="96"></label>
+</div></fieldset>
+<fieldset id="llmSettings" hidden><legend>对话大模型</legend>
+<label id="protocolField" hidden>接口类型<select id="llmProtocol">
+<option value="chat_completions">OpenAI Chat Completions</option><option value="responses">OpenAI Responses</option>
+<option value="anthropic">Anthropic Messages（Claude）</option><option value="qwen_realtime">千问 Omni Realtime（端到端语音）</option></select></label>
+<small id="realtimeHint" hidden>设备直接使用实时模型听说。请填写网关所接服务的实时模型 ID；音色可在下方设置。</small>
+<label>模型名称<input id="model" maxlength="96"></label>
+<button id="saveLlm" type="button" hidden>保存对话模型</button><small role="status" id="llmStatus"></small>
+</fieldset>
+<fieldset id="speechSettings" hidden><legend>语音识别与合成</legend>
 <label>语音识别模型<input id="asr" maxlength="96" placeholder="使用网关默认值"></label>
 <label>语音合成模型<input id="tts" maxlength="96" placeholder="使用网关默认值"></label>
 <label>音色<input id="voice" maxlength="64" placeholder="使用网关默认值"></label>
-</div></fieldset>
+<button id="saveSpeech" type="button" hidden>保存语音设置</button><small role="status" id="speechStatus"></small>
+</fieldset>
+<fieldset id="controls" hidden><legend>语音通话功能</legend>
+<label><input type="checkbox" id="allowMusic">优先播放本地音乐</label>
+<label><input type="checkbox" id="allowVolume">允许调整音量</label>
+<label><input type="checkbox" id="allowState">允许退出通话并返回首页</label>
+<label>自定义技能<textarea id="voiceSkills" rows="4" placeholder="开始晨练=播放音乐 晴天"></textarea></label>
+<small>每行填写「口令=动作」，最多 24 条。可填「播放音乐」「调大音量」「返回首页」，也可指定歌曲或音量，例如「晚安=播放音乐 摇篮曲」「阅读时间=音量 25」。通话中说出口令即可触发已开启的动作。</small>
+<button type="button" id="saveControls">保存语音功能</button><small role="status" id="controlsStatus"></small></fieldset>
 <fieldset id="words"><legend>离线语音口令</legend>
-<small>在设备菜单选择“说一句音乐口令”，看到提示后说话。口令可以直接填中文。多音字可改填无声调拼音，音节用空格分开。</small>
+<small>在设备菜单选择「语音互动 → 说一句音乐口令」，看到提示后说话。口令可以直接填中文。多音字可改填无声调拼音，音节用空格分开。</small>
 <div id="phrases"></div>
 <label>点播歌曲（每行一个歌名）<textarea id="songs" rows="4" placeholder="晴天"></textarea></label>
 <small>添加“晴天”后，说“播放晴天”即可点歌。要指定读音，可填“晴天|qing tian”。</small>
@@ -66,12 +83,38 @@ button{background:var(--accent);border:0;border-radius:.6rem;cursor:pointer;marg
 <fieldset id="updateSource" hidden><legend>固件更新</legend>
 <button type="button" id="useSiteUpdates" hidden>使用本站更新</button>
 <label>HTTPS 发布清单网址<input type="url" id="updateUrl" maxlength="512"></label>
-<small>留空恢复默认地址。保存后在设备菜单选择「检查更新」。</small>
+<small>留空恢复默认地址。保存后在设备菜单选择「设备设置 → 检查更新」。</small>
 <button type="button" id="saveUpdateSource">保存更新地址</button><small id="updateStatus" role="status"></small></fieldset>
+<fieldset id="bluetoothSettings" hidden><legend>设备蓝牙</legend>
+<p id="bluetoothState" role="status"></p><button type="button" id="toggleBluetooth"></button></fieldset>
+<fieldset id="checklist" hidden><legend>口袋清单</legend><label>每行一项，最多 24 项<textarea id="checkItems"></textarea></label>
+<button type="button" id="saveCheck">保存清单</button><small role="status" id="checkStatus"></small></fieldset>
+<fieldset id="library" hidden><legend>点歌与收藏</legend><label>歌曲名或路径<input id="musicQuery"></label>
+<button type="button" id="searchMusic">搜索</button><ul id="searchHits"></ul><button type="button" id="moreMusic" hidden>更多结果</button>
+<h3>我的收藏</h3><ul id="favList"></ul><small id="libraryStatus" role="status"></small></fieldset>
+<fieldset id="mediaConfig" hidden><legend>播放与留言</legend>
+<label>音乐目录<input id="musicDir" placeholder="留空使用卡根目录"></label>
+<label>故事目录<input id="storyDir"></label><label>留言目录<input id="memoDir"></label>
+<label>故事定时停止（分钟，0 关闭）<input id="storyMinutes" type="number" min="0" max="180"></label>
+<label><input id="chapterStop" type="checkbox">播完本章停止</label>
+<label>最长留言（秒）<input id="memoSeconds" type="number" min="1" max="300"></label>
+<button type="button" id="saveMedia">保存播放与留言设置</button><small id="mediaStatus" role="status"></small></fieldset>
+<fieldset id="sdBrowser" hidden><legend>SD 卡</legend>
+<div id="sdPath"></div><div id="pickDirectory" hidden>将当前目录填入
+<select id="dirTarget"><option value="musicDir">音乐目录</option><option value="storyDir">故事目录</option><option value="memoDir">留言目录</option></select>
+<button type="button" id="pickDir">选择此目录</button></div><button type="button" id="sdOpen">浏览目录</button>
+<div id="sdTools" hidden>
+<button type="button" id="sdMkdir">新建目录</button><button type="button" id="sdUpload">上传文件</button>
+<button type="button" id="sdReindex">刷新曲库</button>
+<button type="button" id="sdCancel" hidden>取消传输</button></div>
+<div id="sdPreview" hidden><div id="sdPreviewTitle"></div><div id="sdPreviewBody"></div>
+<button type="button" id="sdClosePreview">关闭预览</button></div>
+<button type="button" id="sdUp" hidden>上一级</button><ul id="sdEntries"></ul>
+<button type="button" id="sdMore" hidden>更多</button><small id="sdStatus" role="status"></small></fieldset>
 <fieldset id="standby" hidden><legend>语音待机</legend>
 <label>空闲多久进入待机<select id="standbyMinutes">
 <option value="1">1 分钟</option><option value="3">3 分钟</option><option value="5">5 分钟</option><option value="10">10 分钟</option><option value="30">30 分钟</option><option value="0">关闭自动待机</option></select></label>
-<small>待机后，喊“小鸭小鸭”返回原页面。设备菜单中的语音唤醒需保持开启。</small>
+<small>待机后，短按任一侧键返回原页面。喊“小鸭小鸭”直接发起通话，无网时可用 SD 卡上的离线模型识别音乐口令。请在「语音互动 → 语音唤醒」开启唤醒。</small>
 <button type="button" id="saveStandby">保存待机时间</button><small id="standbyStatus" role="status"></small></fieldset>
 <fieldset id="screen"><legend>待机画面</legend>
 <small>语音待机时全屏显示。默认是侧耳听声的小鸭。</small>
@@ -110,18 +153,57 @@ async function saveUpdateSource(useSite){
   const r=await deviceRequest('/profile',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'update_source',url})});
   const message=await r.text();if(!r.ok)throw Error(message);
   el('updateUrl').value=url;
-  status.textContent=useSite?'已使用本站更新（'+version+'），请在设备菜单选择「检查更新」。':message;
+  status.textContent=useSite?'已使用本站更新（'+version+'），请在设备菜单选择「设备设置 → 检查更新」。':message;
  }catch(e){status.textContent=e.message||'保存失败，请重试'}
  finally{button.disabled=site.disabled=false}
 }
 el('saveUpdateSource').onclick=()=>saveUpdateSource(false);
 el('useSiteUpdates').onclick=()=>saveUpdateSource(true);
+let bluetoothEnabled=false;
+function renderBluetooth(enabled){
+ el('bluetoothSettings').hidden=typeof enabled!=='boolean';
+ bluetoothEnabled=enabled===true;
+ el('bluetoothState').textContent=bluetoothEnabled?'蓝牙已开启，可搜索设备':'蓝牙已关闭';
+ el('toggleBluetooth').textContent=bluetoothEnabled?'关闭设备蓝牙':'开启设备蓝牙';
+}
+el('toggleBluetooth').onclick=async()=>{
+ const next=!bluetoothEnabled;
+ if(!next && !localDevice && !confirm('关闭后，本次蓝牙连接会断开。可在设备的「手机与网络 → 蓝牙开关」重新开启。'))return;
+ el('toggleBluetooth').disabled=true;
+ try{
+  const r=await deviceRequest('/profile',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'bluetooth',enabled:next})});
+  if(!r.ok)throw Error(await r.text());
+  renderBluetooth(next);
+ }catch(e){el('bluetoothState').textContent=e.message}
+ finally{el('toggleBluetooth').disabled=false}
+};
 el('saveStandby').onclick=async()=>{
  const button=el('saveStandby');button.disabled=true;
  try{
   const r=await deviceRequest('/profile',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'standby',minutes:Number(el('standbyMinutes').value)})});
   el('standbyStatus').textContent=await r.text();
  }catch{el('standbyStatus').textContent='保存失败，请重试'}
+ finally{button.disabled=false}
+};
+const actions={music:'播放音乐',volume:'调大音量',state:'返回首页'};
+const switches={music:'allowMusic',volume:'allowVolume',state:'allowState'};
+el('saveControls').onclick=async()=>{
+ const button=el('saveControls');button.disabled=true;
+ try{
+  const policy=Object.fromEntries(Object.entries(switches).map(([k,id])=>[k,el(id).checked]));
+  policy.skills=el('voiceSkills').value.split('\n').filter(s=>s.trim()).map(line=>{
+   const [phrase,label,...extra]=line.split('=').map(s=>s.trim());
+   if(!phrase||!label||extra.length)throw Error('请按「口令=动作」填写每一行');
+   const volume=label.match(/^音量\s+(\d{1,3})$/);
+   if(volume && Number(volume[1])<=100)return {phrase,action:'volume',argument:Number(volume[1])};
+   if(label.startsWith('播放音乐 ') && label.slice(5).trim())return {phrase,action:'music',argument:label.slice(5).trim()};
+   const action=Object.keys(actions).find(k=>actions[k]===label);
+   if(!phrase||!action||extra.length)throw Error('请按「口令=动作」填写每一行');
+   return {phrase,action};
+  });
+  const result=await deviceRequest('/profile',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'voice_controls',policy})});
+  el('controlsStatus').textContent=await result.text();
+ }catch(error){el('controlsStatus').textContent=error.message}
  finally{button.disabled=false}
 };
 el('saveWords').onclick=async()=>{
@@ -134,10 +216,26 @@ el('saveWords').onclick=async()=>{
  }catch{el('wordsStatus').textContent='保存失败，请重试'}
  finally{button.disabled=false}
 };
-let savedUrl='', hasToken=false;
+let savedUrl='', hasToken=false, separateModelSettings=false;
 function updateTokenHint(){
+ for(const id of ['saveLlm','saveSpeech']){
+  el(id).hidden=!separateModelSettings || !savedUrl || el('url').value!==savedUrl;
+ }
  el('token').placeholder=hasToken && el('url').value===savedUrl?'留空沿用当前网关的令牌':'输入设备令牌';
 }
+async function saveModelGroup(buttonId,statusId,action,fields){
+ const button=el(buttonId);button.disabled=true;
+ try{
+  const payload={action,url:savedUrl};
+  for(const key of fields)payload[key]=el(key).value;
+  if(action==='save_llm' && !el('protocolField').hidden)payload.protocol=el('llmProtocol').value;
+  const r=await deviceRequest('/profile',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  el(statusId).textContent=await r.text();
+ }catch{el(statusId).textContent='连接中断，请重新读取设置'}
+ finally{button.disabled=false}
+}
+el('saveLlm').onclick=()=>saveModelGroup('saveLlm','llmStatus','save_llm',['model']);
+el('saveSpeech').onclick=()=>saveModelGroup('saveSpeech','speechStatus','save_speech',['asr','tts','voice']);
 el('url').oninput=updateTokenHint;
 
 async function scanNetworks(){
@@ -164,7 +262,14 @@ async function scanNetworks(){
  finally{button.disabled=false}
 }
 el('scan').onclick=scanNetworks;
-function modeChanged(){const custom=el('mode').value==='custom';el('custom').hidden=!custom;el('xiaozhiHelp').hidden=custom}
+function updateProtocolFields(){
+ const realtime=el('llmProtocol').value==='qwen_realtime';
+ el('realtimeHint').hidden=!realtime;
+ for(const id of ['asr','tts'])el(id).closest('label').hidden=realtime;
+ el('voice').placeholder=realtime?'留空使用实时模型默认音色':'使用网关默认值';
+}
+el('llmProtocol').onchange=updateProtocolFields;
+function modeChanged(){const custom=el('mode').value==='custom';for(const id of ['custom','llmSettings','speechSettings'])el(id).hidden=!custom;el('xiaozhiHelp').hidden=custom}
 el('mode').onchange=modeChanged;
 function showSaved(names){
  el('savedCount').textContent='已保存的网络（'+names.length+'/10）';
@@ -193,13 +298,310 @@ async function changeWifi(action,ssid,password){
  finally{el('addWifi').disabled=false}
 }
 el('addWifi').onclick=()=>changeWifi('add_wifi',el('ssid').value,el('password').value);
+async function pocketAction(action, fields){
+ const response=await deviceRequest('/profile',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,...fields})});
+ const message=await response.text();
+ if(!response.ok)throw Error(message);
+ return message;
+}
+let mediaFolders=null,favorites=[],searchNext,searchGeneration=0,searchQuery='';
+function mediaButton(row,title,action){
+ const button=document.createElement('button');button.type='button';button.textContent=title;
+ button.onclick=async()=>{
+  button.disabled=true;
+  const status=el(row.closest('#sdEntries')?'sdStatus':'libraryStatus');
+  try{status.textContent=await action()}catch(e){status.textContent=e.message}
+  finally{button.disabled=false}
+ };
+ row.append(button);
+}
+function addTrack(row,path,fromBrowser=false){
+ const inside=dir=>!dir||path.startsWith(dir+'/');
+ row.dataset.track=path;row.dataset.browser=String(fromBrowser);
+ const music=inside(mediaFolders?.music),story=inside(mediaFolders?.stories);
+ if(music)mediaButton(row,'播放',()=>pocketAction('play_media',{path,kind:'music'}));
+ if(fromBrowser&&story)mediaButton(row,'听故事',()=>pocketAction('play_media',{path,kind:'story'}));
+ const favorite=favorites.includes(path);
+ if(music||favorite)mediaButton(row,favorite?'移除收藏':'收藏',async()=>{
+  const msg=await pocketAction('favorite',{path,enabled:!favorite});
+  favorites=favorite?favorites.filter(name=>name!==path):[...new Set([...favorites,path])];
+  refreshTrackButtons();
+  return msg;
+ });
+}
+function renderFavorites(){
+ const list=el('favList');list.replaceChildren();
+ for(const path of favorites){
+  const row=document.createElement('li');row.textContent=path;addTrack(row,path);list.append(row);
+ }
+}
+function refreshTrackButtons(){
+ renderFavorites();
+ for(const row of document.querySelectorAll('#searchHits [data-track],#sdEntries [data-track]')){
+  const path=row.dataset.track,browser=row.dataset.browser==='true';
+  row.replaceChildren(document.createTextNode(browser?path.split('/').pop():path));
+  addTrack(row,path,browser);if(browser)addFileControls(row,path,false);
+ }
+}
+async function searchMusic(more){
+ const generation=++searchGeneration;
+ if(!more){searchQuery=el('musicQuery').value.trim();searchNext=0;el('searchHits').replaceChildren()}
+ el('moreMusic').hidden=true;
+ let count=0;
+ try{
+  do{
+   const page=JSON.parse(await pocketAction('search_music',{query:searchQuery,cursor:searchNext}));
+   if(generation!==searchGeneration)return;
+   for(const path of page.entries){
+    const row=document.createElement('li');row.textContent=path;addTrack(row,path);el('searchHits').append(row);
+   }
+   count+=page.entries.length;searchNext=page.next;
+  }while(!count&&Number.isInteger(searchNext));
+  el('moreMusic').hidden=!Number.isInteger(searchNext);
+  el('libraryStatus').textContent=el('searchHits').children.length?'':'没有匹配的歌曲';
+ }catch(e){if(generation===searchGeneration)el('libraryStatus').textContent=e.message}
+}
+el('searchMusic').onclick=()=>searchMusic(false);
+el('moreMusic').onclick=()=>searchMusic(true);
+el('saveMedia').onclick=async()=>{
+ const folder=id=>el(id).value.replace(/^\/+|\/+$/g,'');
+ const media={music:folder('musicDir'),stories:folder('storyDir'),messages:folder('memoDir'),
+ minutes:Number(el('storyMinutes').value),record_seconds:Number(el('memoSeconds').value),chapter_stop:el('chapterStop').checked};
+ try{el('mediaStatus').textContent=await pocketAction('media_config',{media});mediaFolders=media;refreshTrackButtons()}
+ catch(e){el('mediaStatus').textContent=e.message}
+};
+el('pickDir').onclick=()=>{el(el('dirTarget').value).value=sdPath;el('mediaStatus').textContent='选好目录后请保存设置';};
+el('saveCheck').onclick=async()=>{
+ const items=el('checkItems').value.split('\n').map(line=>line.trim()).filter(Boolean);
+ try{el('checkStatus').textContent=await pocketAction('checklist',{items})}
+ catch(e){el('checkStatus').textContent=e.message}
+};
+let manageCard=false, transfer=null,previewUrl='',cardConnection=0;
+const cardPath=(dir,name)=>dir?dir+'/'+name:name;
+const fileInfo=async path=>JSON.parse(await pocketAction('sd_info',{path}));
+function closePreview(){
+ if(previewUrl)URL.revokeObjectURL(previewUrl);
+ previewUrl='';el('sdPreviewBody').replaceChildren();el('sdPreview').hidden=true;
+}
+el('sdClosePreview').onclick=closePreview;
+el('sdCancel').onclick=()=>{if(transfer)transfer.cancelled=true};
+async function runTransfer(work){
+ if(transfer)throw Error('请先完成当前传输');
+ const current={cancelled:false,connection:cardConnection};
+ const check=()=>{if(current.cancelled||current.connection!==cardConnection)throw Error('传输已取消')};
+ transfer=current;el('sdCancel').hidden=false;
+ try{return await work(check,current)}finally{
+  if(transfer===current){transfer=null;el('sdCancel').hidden=true}
+ }
+}
+function fileControl(container,label,action){
+ const button=document.createElement('button');button.type='button';button.textContent=label;
+ button.onclick=async()=>{
+  button.disabled=true;
+  try{const message=await action();if(message)el('sdStatus').textContent=message}
+  catch(e){el('sdStatus').textContent=e.message}
+  finally{button.disabled=false}
+ };
+ container.append(button);
+}
+function progress(done,total){el('sdStatus').textContent=done.toLocaleString()+' / '+total.toLocaleString()+' 字节'}
+async function uploadCard(path,file,expected){
+ if(file.size>0xffffffff)throw Error('单个文件超过 FAT32 上限');
+ return runTransfer(async(check,current)=>{
+  const info=await fileInfo(path);check();
+  if(info.directory)throw Error('同名目录已存在');
+  if(expected!==undefined&&expected!==info.revision)throw Error('文件已改变，请重新打开');
+  if(info.exists&&!confirm('替换卡上的文件 /'+path+'？'))return;
+  const fields={path,revision:info.revision};
+  const token=await pocketAction('sd_begin',fields);
+  try{
+   progress(0,file.size);
+   for(let offset=0;offset<file.size;offset+=8192){
+    check();const bytes=new Uint8Array(await file.slice(offset,offset+8192).arrayBuffer());check();
+    const data={path,token,offset,bytes:btoa(String.fromCharCode(...bytes))};
+    await pocketAction('sd_chunk',data);progress(offset+bytes.length,file.size);
+   }
+   check();await pocketAction('sd_finish',{...fields,token,size:file.size});
+  }catch(e){
+   if(current.connection===cardConnection)await pocketAction('sd_cancel',{path,token}).catch(()=>{});
+   throw e;
+  }
+  if(current.connection===cardConnection){await browseCard(sdPath);return '已保存 /'+path}
+ });
+}
+function chooseUpload(target){
+ const dir=sdPath,connection=cardConnection;
+ const input=document.createElement('input');input.type='file';
+ input.onchange=async()=>{const file=input.files[0];if(!file||connection!==cardConnection)return;
+  try{const message=await uploadCard(target||cardPath(dir,file.name),file);if(message)el('sdStatus').textContent=message}
+  catch(e){el('sdStatus').textContent=e.message}
+ };
+ input.click();
+}
+el('sdUpload').onclick=()=>chooseUpload();
+el('sdMkdir').onclick=async()=>{
+ const name=prompt('新目录名称');if(!name)return;
+ if(name.includes('/')){el('sdStatus').textContent='请输入单个目录名称';return}
+ try{await pocketAction('sd_mkdir',{path:cardPath(sdPath,name)});await browseCard(sdPath)}
+ catch(e){el('sdStatus').textContent=e.message}
+};
+el('sdReindex').onclick=async()=>{
+ try{el('sdStatus').textContent=await pocketAction('sd_reindex',{})}catch(e){el('sdStatus').textContent=e.message}
+};
+async function deleteDirectory(path,rootInfo){
+ return runTransfer(async check=>{
+  const stack=[{path,revision:rootInfo.revision,children:[]}];
+  let removed=0;
+  try{
+   while(stack.length){
+    check();
+    const dir=stack[stack.length-1];
+    if(!dir.children.length){
+     const info=await fileInfo(dir.path);check();
+     if(!info.directory||info.revision!==dir.revision)throw Error('目录已改变，请刷新');
+     const page=JSON.parse(await pocketAction('browse_sd',{path:dir.path,cursor:0}));check();
+     if(!page.entries.length){
+      await pocketAction('sd_remove',{path:dir.path,revision:dir.revision});stack.pop();++removed;
+      continue;
+     }
+     dir.children=page.entries;
+    }
+    const child=dir.children.pop(),childPath=cardPath(dir.path,child.name);
+    const info=await fileInfo(childPath);check();
+    if(!info.exists)continue;
+    if(info.directory)stack.push({path:childPath,revision:info.revision,children:[]});
+    else{await pocketAction('sd_remove',{path:childPath,revision:info.revision});++removed}
+    el('sdStatus').textContent='已删除 '+removed+' 项';
+   }
+  }catch(e){throw Error('已删除 '+removed+' 项。'+e.message)}
+ });
+}
+async function receiveCard(path,preview){
+ const name=path.split('/').pop(),connection=cardConnection;
+ // Acquire a streaming destination while the browser still has a user gesture.
+ const destination=!preview&&window.showSaveFilePicker?await window.showSaveFilePicker({suggestedName:name}):null;
+ if(connection!==cardConnection)throw Error('设备连接已更改');
+ return runTransfer(async check=>{
+  const info=await fileInfo(path);check();
+  if(!info.exists||info.directory)throw Error('文件不存在');
+  const types={png:'image/png',jpg:'image/jpeg',jpeg:'image/jpeg',gif:'image/gif',webp:'image/webp',
+   wav:'audio/wav',mp3:'audio/mpeg',txt:'text/plain',md:'text/plain',csv:'text/plain',
+   json:'text/plain',log:'text/plain'};
+  const ext=name.split('.').pop().toLowerCase();
+  const mime=Object.prototype.hasOwnProperty.call(types,ext)?types[ext]:'';
+  if(preview&&(!mime||info.size>(mime==='text/plain'?262144:16*1024*1024)))throw Error('此文件请下载后打开');
+  const stream=destination?await destination.createWritable():null,parts=[];
+  try{
+   for(let offset=0;offset<info.size;){
+    check();const raw=atob(await pocketAction('sd_read',{path,offset,revision:info.revision}));check();
+    if(!raw.length||offset+raw.length>info.size)throw Error('文件数据不完整');
+    const chunk=Uint8Array.from(raw,c=>c.charCodeAt(0));if(stream)await stream.write(chunk);else parts.push(chunk);
+    offset+=raw.length;progress(offset,info.size);
+   }
+   check();if(stream)await stream.close();
+  }catch(e){if(stream)await stream.abort().catch(()=>{});throw e}
+  if(stream)return '下载完成';
+  const blob=new Blob(parts,{type:mime||'application/octet-stream'});
+  if(!preview){
+   const link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download=name;link.click();
+   setTimeout(()=>URL.revokeObjectURL(link.href),60000);return '已准备下载';
+  }
+  closePreview();const body=el('sdPreviewBody');
+  if(mime==='text/plain'){
+   const bytes=new Uint8Array(await blob.arrayBuffer());check();
+   const text=new TextDecoder('utf-8',{fatal:true}).decode(bytes);
+   const bom=bytes[0]===239&&bytes[1]===187&&bytes[2]===191?'\uFEFF':'';
+   const crlf=text.includes('\r\n')&&!text.replaceAll('\r\n','').includes('\n');
+   const editor=document.createElement('textarea');editor.rows=10;editor.value=text;body.append(editor);
+   fileControl(body,'保存文本',async()=>{
+    const message=await uploadCard(path,new Blob([bom,crlf?editor.value.replaceAll('\n','\r\n'):editor.value]),info.revision);
+    if(message)closePreview();return message;
+   });
+  }else{
+   const media=document.createElement(mime.startsWith('audio/')?'audio':'img');
+   previewUrl=URL.createObjectURL(blob);media.src=previewUrl;media.controls=true;media.style.maxWidth='100%';body.append(media);
+  }
+  el('sdPreviewTitle').textContent='/'+path;el('sdPreview').hidden=false;return '预览已打开';
+ });
+}
+function addFileControls(row,path,directory){
+ if(!manageCard)return;
+ const group=document.createElement('details'),summary=document.createElement('summary');summary.textContent='管理';group.append(summary);
+ if(!directory){
+  fileControl(group,'预览',()=>receiveCard(path,true));
+  fileControl(group,'下载',()=>receiveCard(path,false));
+  fileControl(group,'替换',()=>chooseUpload(path));
+ }
+ fileControl(group,'重命名或移动',async()=>{
+  const connection=cardConnection;
+  const destination=prompt('新的卡内完整路径',path);if(!destination||destination===path)return;
+  const info=await fileInfo(path);
+  if(connection!==cardConnection)throw Error('设备连接已更改');
+  await pocketAction('sd_move',{path,destination,revision:info.revision});await browseCard(sdPath);return '已移动';
+ });
+ fileControl(group,'删除',async()=>{
+  const connection=cardConnection;
+  const info=await fileInfo(path);if(connection!==cardConnection)throw Error('设备连接已更改');
+  if(!confirm(directory?'删除 /'+path+' 及其中的全部内容？':'删除文件 /'+path+'？'))return;
+  if(directory)await deleteDirectory(path,info);
+  else await pocketAction('sd_remove',{path,revision:info.revision});
+  await browseCard(sdPath);return '已删除';
+ });
+ row.append(group);
+}
+let sdPath='', sdNext=0, sdGeneration=0;
+async function browseCard(path,cursor=0){
+ const generation=++sdGeneration;
+ el('sdStatus').textContent='正在读取…';
+ try{
+  const response=await deviceRequest('/profile',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'browse_sd',path,cursor})});
+  if(!response.ok)throw Error(await response.text());
+  const page=await response.json();
+  if(generation!==sdGeneration)return;
+  sdPath=path;sdNext=page.next;el('pickDirectory').hidden=false;
+  el('sdPath').textContent='/'+path;el('sdUp').hidden=!path;
+  const list=el('sdEntries');
+  if(!cursor)list.replaceChildren();
+  for(const entry of page.entries){
+   const row=document.createElement('li');
+   if(entry.directory){
+    const button=document.createElement('button');button.type='button';button.textContent=entry.name+'/';
+    button.onclick=()=>browseCard([path,entry.name].filter(Boolean).join('/'));row.append(button);
+   }else{
+    row.textContent=entry.name;
+    if(/\.mp3$/i.test(entry.name))addTrack(row,[path,entry.name].filter(Boolean).join('/'),true);
+   }
+   addFileControls(row,cardPath(path,entry.name),entry.directory);list.append(row);
+  }
+  el('sdMore').hidden=!Number.isInteger(sdNext);
+  el('sdStatus').textContent=list.children.length?'':'空目录';
+ }catch(e){if(generation===sdGeneration)el('sdStatus').textContent=e.message}
+}
+el('sdOpen').onclick=()=>browseCard(sdPath);
+el('sdUp').onclick=()=>browseCard(sdPath.split('/').slice(0,-1).join('/'));
+el('sdMore').onclick=()=>browseCard(sdPath,sdNext);
 async function load(){
  el('retry').hidden=true;el('status').textContent='';
  try{
   const response=await deviceRequest('/profile',{cache:'no-store'});
   if(!response.ok)throw Error('无法读取设置');
   const data=await response.json();
+  mediaFolders=data.media;favorites=data.favorites||[];el('library').hidden=!data.media;renderFavorites();
+  el('mediaConfig').hidden=!data.media;
+  if(data.media){
+   for(const [id,key] of Object.entries({musicDir:'music',storyDir:'stories',memoDir:'messages',storyMinutes:'minutes',memoSeconds:'record_seconds'}))el(id).value=data.media[key];
+   el('chapterStop').checked=data.media.chapter_stop;
+  }
+  el('checklist').hidden=!Array.isArray(data.checklist);el('checkItems').value=(data.checklist||[]).join('\n');
+  el('sdBrowser').hidden=!data.sd_browser;manageCard=data.sd_manage===true;el('sdTools').hidden=!manageCard;el('sdPath').textContent='/'+sdPath;
   el('updateSource').hidden=typeof data.update_url!=='string';el('updateUrl').value=data.update_url||'';
+  renderBluetooth(data.bluetooth_enabled);
+  el('controls').hidden=!data.voice_controls;
+  if(data.voice_controls){
+   for(const [group,id] of Object.entries(switches))el(id).checked=data.voice_controls[group];
+   el('voiceSkills').value=data.voice_controls.skills.map(s=>s.phrase+'='+(s.argument===undefined?actions[s.action]:(s.action==='volume'?'音量':'播放音乐')+' '+s.argument)).join('\n');
+   el('controlsStatus').textContent='';
+  }
   el('standby').hidden=!Number.isInteger(data.standby_minutes);
   if(!el('standby').hidden)el('standbyMinutes').value=String(data.standby_minutes);
   const lines=data.offline_words.split('\n');
@@ -208,6 +610,10 @@ async function load(){
   showSaved(data.saved_wifi||[]);
   for(const key of ['url','model','asr','tts','voice'])el(key).value=data[key]||'';
   el('mode').value=data.url?'custom':'default';
+  el('protocolField').hidden=!data.protocol;
+  el('llmProtocol').value=data.protocol||'chat_completions';
+  updateProtocolFields();
+  separateModelSettings=data.separate_model_settings===true;
   savedUrl=data.url||'';hasToken=Boolean(data.has_token);updateTokenHint();
   el('wifiHint').textContent=data.has_wifi?'Wi-Fi 名称留空可保留已保存的网络。':'请输入设备将连接的 2.4 GHz Wi-Fi。';
   modeChanged();el('save').disabled=false;
@@ -287,7 +693,9 @@ el('leave').onclick=async ()=>{
  try{
   const reply=await deviceRequest('/exit',{method:'POST',headers:{'Content-Type':'application/json'}});
   if(!reply.ok)throw Error('退出失败，请重试');
+  clearInterval(presenceTimer);
   el('status').textContent=await reply.text();
+  if(!localDevice)device?.gatt.disconnect();
  }catch(e){el('status').textContent=e.message;el('leave').disabled=false;el('save').disabled=false}
 };
 el('settings').onsubmit=async event=>{
@@ -296,6 +704,7 @@ el('settings').onsubmit=async event=>{
   const data={};
   for(const key of ['ssid','password','mode']) data[key]=el(key).value;
   if(data.mode==='custom'){
+   if(!el('protocolField').hidden)data.protocol=el('llmProtocol').value;
    for(const key of ['url','token','model','asr','tts','voice']) data[key]=el(key).value;
   }
   const reply=await deviceRequest('/profile',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
@@ -404,9 +813,11 @@ async function authorize(name=''){
    response=await probe('');
   }
   if(attempt!==authAttempt)return;
-  if(response.ok){openSettings();return}
+  if(response.ok){
+   openSettings();return;
+  }
   el('authStatus').textContent=response.status===403?'填写名称后请求连接，再在设备上确认。':await response.text();
- }catch{if(attempt===authAttempt)el('authStatus').textContent='连接中断，请重新打开设备管理页。'}
+ }catch(error){if(attempt===authAttempt)el('authStatus').textContent=error.message||'连接中断，请重新打开设备管理页。'}
  finally{if(attempt===authAttempt)el('requestAccess').disabled=false}
 }
 el('requestAccess').onclick=()=>{
@@ -414,12 +825,33 @@ el('requestAccess').onclick=()=>{
  if(!name||new TextEncoder().encode(name).length>48){el('authStatus').textContent='请输入不超过 48 字节的名称';return}
  authorize(name);
 };
+let presenceTimer;
+let presencePending=false;
+async function refreshPresence(){
+ if(!lanDevice || el('settings').hidden || presencePending)return;
+ presencePending=true;
+ try{await deviceRequest('/presence',{cache:'no-store'})}catch{}finally{presencePending=false}
+}
+function startPresence(){
+ clearInterval(presenceTimer);
+ refreshPresence();
+ presenceTimer=setInterval(refreshPresence,20000);
+}
+addEventListener('pagehide',()=>clearInterval(presenceTimer));
+addEventListener('pageshow',event=>{if(event.persisted && lanDevice && !el('settings').hidden)startPresence()});
 function openSettings(){
  el('authorization').hidden=true;
  el('guide').hidden=true;el('settings').hidden=false;
+ if(lanDevice)startPresence();
  load();scanNetworks();saverEditors.forEach(editor=>editor.load());
 }
 function disconnected(){
+ ++cardConnection;if(transfer)transfer.cancelled=true;closePreview();
+ ++searchGeneration;el('searchHits').replaceChildren();el('moreMusic').hidden=true;
+ el('pickDirectory').hidden=true;el('checkStatus').textContent='';el('mediaStatus').textContent='';el('libraryStatus').textContent='';
+ ++sdGeneration;sdPath='';el('sdBrowser').hidden=true;el('sdEntries').replaceChildren();
+ for(const id of ['sdUp','sdMore'])el(id).hidden=true;
+ for(const id of ['sdPath','sdStatus'])el(id).textContent='';
  ++authAttempt;el('authorization').hidden=true;
  characteristic=null;el('settings').hidden=true;el('guide').hidden=false;
  el('updateSource').hidden=true;el('updateStatus').textContent='';
@@ -427,7 +859,7 @@ function disconnected(){
  el('settings').reset();saverEditors.forEach(editor=>editor.reset());
  el('save').disabled=true;el('leave').disabled=false;el('saveWords').disabled=true;
  for(const id of ['networks','savedWifi','wifiStatus','wordsStatus','imageStatus'])el(id).replaceChildren();
- el('connection').textContent='设备已断开';el('feedback').textContent='若刚保存并重启或退出，连接会自动结束。再次管理时，请在设备上重新打开设置。';
+ el('connection').textContent='设备已断开';el('feedback').textContent='关闭设备蓝牙、保存重启或退出时，连接会结束。再次管理时，可重新选择蓝牙设备。';
 }
 async function connectDevice(previous){
  el('connect').disabled=true;
@@ -438,15 +870,20 @@ async function connectDevice(previous){
   const server=await device.gatt.connect();
   const service=await server.getPrimaryService(serviceId);
   characteristic=await service.getCharacteristic(channelId);
-  await characteristic.readValue();
-  prepareKey('ble.'+device.id);
-  const bytes=browserKey.match(/../g).map(pair=>parseInt(pair,16));
-  await characteristic.writeValueWithResponse(Uint8Array.of(4,...bytes));
+  const capabilities=await characteristic.readValue();
+  const pairedAccess=capabilities.byteLength>=6 && capabilities.getUint16(0,true)===0 &&
+      capabilities.getUint16(2,true)===0 && capabilities.getUint8(5)===1;
+  if(!pairedAccess){
+   prepareKey('ble.'+device.id);
+   const bytes=browserKey.match(/../g).map(pair=>parseInt(pair,16));
+   await characteristic.writeValueWithResponse(Uint8Array.of(4,...bytes));
+  }
   localStorage.setItem('quack.lastDevice',device.id);
-  el('connection').textContent='已通过蓝牙连接 · '+(device.name||'嘎嘎口袋');await authorize();
+  el('connection').textContent='已通过蓝牙连接 · '+(device.name||'嘎嘎口袋');
+  if(pairedAccess)openSettings();else await authorize();
  }catch(error){
   device?.gatt.disconnect();
-  el('feedback').textContent=error.name==='NotFoundError'?'未选择设备。请确认墨水屏已进入设置，再点选设备。':'连接失败，请确认蓝牙已开启，按提示输入屏幕上的六位蓝牙配对码，然后重试。';
+  el('feedback').textContent=error.name==='NotFoundError'?'未选择设备。请确认设备已开机并已打开「手机与网络 → 蓝牙开关」，再点选设备。':'连接失败，请确认蓝牙已开启，按提示输入屏幕上的六位蓝牙配对码，然后重试。';
  }finally{el('connect').disabled=false}
 }
 el('connect').onclick=()=>connectDevice();

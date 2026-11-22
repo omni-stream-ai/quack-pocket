@@ -1,8 +1,12 @@
+#include "phone_setup.h"
 #include "custom_lcd_display.h"
+#include "pocket_memo.h"
 
 #include "lcd_display.h"
 
 #include <vector>
+#include <algorithm>
+#include <esp_attr.h>
 #include <esp_log.h>
 #include <esp_err.h>
 #include <esp_lvgl_port.h>
@@ -187,7 +191,6 @@ CustomLcdDisplay::CustomLcdDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_p
 	ESP_LOGI(TAG, "EPD init");
 	EPD_Init();
     EPD_Clear();
-    EPD_Display();
     EPD_DisplayPartBaseImage();
     EPD_Init_Partial();            //局部刷新初始化
 
@@ -300,30 +303,22 @@ void CustomLcdDisplay::EPD_SendCommand(uint8_t command) {
   	set_cs_1();
 }
 
-void CustomLcdDisplay::writeBytes(uint8_t *buffer,int len) {
+void CustomLcdDisplay::writeBytes(const uint8_t* data, int len) {
+    // The frame lives in PSRAM. This panel has one serialized SPI writer.
+    static DMA_ATTR uint8_t chunk[256];
     set_dc_1();
-  	set_cs_0();
-  	esp_err_t ret;
-  	spi_transaction_t t; 
-  	memset(&t, 0, sizeof(t));
-  	t.length = 8 * len;      
-  	t.tx_buffer = buffer;
-  	ret = spi_device_polling_transmit(spi, &t); //Transmit!
-  	assert(ret == ESP_OK);
-  	set_cs_1();
-}
-
-void CustomLcdDisplay::writeBytes(const uint8_t *buffer, int len) {
-    set_dc_1();
-  	set_cs_0();
-  	esp_err_t ret;
-  	spi_transaction_t t; 
-  	memset(&t, 0, sizeof(t));
-  	t.length = 8 * len;      
-  	t.tx_buffer = buffer;
-  	ret = spi_device_polling_transmit(spi, &t); //Transmit!
-  	assert(ret == ESP_OK);
-  	set_cs_1();
+    set_cs_0();
+    while (len > 0) {
+        const int size = std::min(len, static_cast<int>(sizeof(chunk)));
+        memcpy(chunk, data, size);
+        spi_transaction_t transaction{};
+        transaction.length = size * 8;
+        transaction.tx_buffer = chunk;
+        ESP_ERROR_CHECK(spi_device_polling_transmit(spi, &transaction));
+        data += size;
+        len -= size;
+    }
+    set_cs_1();
 }
 
 void CustomLcdDisplay::EPD_SetWindows(uint16_t Xstart, uint16_t Ystart, uint16_t Xend, uint16_t Yend) {
@@ -424,14 +419,6 @@ void CustomLcdDisplay::EPD_Clear() {
     memset(buffer,0xff,buffer_len);
 }
 
-void CustomLcdDisplay::EPD_Display() {
-    int buffer_len = lcd_spi_data.buffer_len;
-    EPD_SendCommand(0x24);
-    assert(buffer);
-    writeBytes(buffer,buffer_len);
-    EPD_TurnOnDisplay();
-}
-
 void CustomLcdDisplay::EPD_DisplayPartBaseImage() {
     int buffer_len = lcd_spi_data.buffer_len;
     EPD_SendCommand(0x24);
@@ -499,6 +486,20 @@ bool CustomLcdDisplay::EPD_DrawColorPixel(uint16_t x, uint16_t y,uint8_t color) 
     return buffer[index] != before;
 }
 
+void CustomLcdDisplay::ShowBluetoothPrompt(const std::string& message) {
+    if (!Lock(3000)) return;
+    ResetSaver();
+    if(message.empty()) {
+        if(bluetooth_prompt_) lv_obj_delete(bluetooth_prompt_);
+        bluetooth_prompt_=nullptr;
+    } else {
+        if(!bluetooth_prompt_) bluetooth_prompt_=CreatePageLabel();
+        lv_label_set_text(bluetooth_prompt_,message.c_str());
+        lv_obj_move_foreground(bluetooth_prompt_);
+    }
+    Unlock();
+}
+
 void CustomLcdDisplay::ShowSetupCode(const char* ssid, const char* password, unsigned pairing_code, const std::string& lan_url, const std::string& fingerprint, const std::string& address) {
     if (!Lock(3000)) return;
     ResetSaver();
@@ -529,6 +530,7 @@ void CustomLcdDisplay::ShowSetupCode(const char* ssid, const char* password, uns
         auto* details = lv_label_create(setup_overlay_);
         lv_obj_set_style_text_line_space(details, 0, 0);
         if (!lan_url.empty()) lv_label_set_text_fmt(details, "备用 https://%s\n证书 SHA256 前 24 位\n%.12s\n%s", address.c_str(),fingerprint.c_str(),fingerprint.c_str()+12);
+        else if(pairing_code>=1000000) lv_label_set_text_fmt(details,"http://192.168.4.1\n热点 %s\n密码 %s\n蓝牙已关闭",ssid,password);
         else lv_label_set_text_fmt(details, "http://192.168.4.1\n热点 %s\n密码 %s\n蓝牙配对码 %06u", ssid, password, pairing_code);
         lv_obj_set_pos(details, 6, 126);
     }
@@ -557,7 +559,7 @@ void CustomLcdDisplay::SetChatMessage(const char* role, const char* content) {
     }
 }
 
-void CustomLcdDisplay::ShowMenu(const std::string& header, const char* icon, const char* title, const std::string& detail) {
+void CustomLcdDisplay::ShowMenu(const std::string& header, const char* icon, const char* title, const std::string& detail, const char* navigation) {
     if (!Lock(3000)) return;
     RenderMenuLocked(header);
     auto centered = [this](const char* text, int y) {
@@ -570,7 +572,7 @@ void CustomLcdDisplay::ShowMenu(const std::string& header, const char* icon, con
     lv_obj_set_style_text_font(glyph, &font_awesome_30_4, 0);
     centered(title, 88);
     if (!detail.empty()) centered(detail.c_str(), 110);
-    centered("PWR 短按下一项 · 双击上一项", 145);
+    centered(navigation, 145);
     centered("BOOT 短按确认 · 长按返回", 167);
     Unlock();
 }
@@ -642,17 +644,19 @@ void CustomLcdDisplay::ShowVoiceHint(const char* text, int duration_ms) {
 }
 
 void CustomLcdDisplay::RenderHomeText(lv_obj_t* page, const char* greeting, const char* action) {
+    if (PocketMemoUnread()) action = "有新留言 · BOOT 收听";
     lv_label_set_text_fmt(page, "嘎嘎口袋\n%s\n\n%s\n短按 PWR 播放或暂停音乐\n长按 BOOT 打开主菜单", greeting, action);
 }
 
 void CustomLcdDisplay::RenderConnectedHome() {
-    const char* greeting = Settings("omni_ui").GetInt("wake", 1) ? "叫我“小鸭小鸭”" : "按键唤醒";
+    const char* greeting = Settings("omni_ui").GetInt("wake", 1) ? "叫我“小鸭小鸭”" : "语音唤醒已关闭";
     RenderHomeText(home_page_, greeting, "短按 BOOT 进入语音通话");
 }
 
 void CustomLcdDisplay::RefreshHome() {
     if (!Lock(3000)) return;
     if (home_page_) RenderConnectedHome();
+    if (network_home_ && network_page_) RenderHomeText(network_page_, "离线首页", "短按 BOOT 说音乐口令");
     Unlock();
 }
 
@@ -727,6 +731,10 @@ void CustomLcdDisplay::SetStatus(const char* status) {
 }
 
 void CustomLcdDisplay::UpdateSaver() {
+    if (ManagementInUse()) {
+        ResetSaver();
+        return;
+    }
     if (standby_page_ || !saver_available_ || (!saver_allowed_ && !home_page_ && !network_home_) || menu_label_ || (network_page_ && !network_home_) || setup_overlay_ ||
         saver_layer_ || lv_tick_elaps(last_activity_) < 60000) return;
     saver_layer_ = lv_image_create(lv_display_get_screen_active(display_));
@@ -817,8 +825,8 @@ void CustomLcdDisplay::ShowGuide(int page) {
     static const char* const messages[] = {
         "嘎嘎口袋   1/4\n嘎，按 BOOT 翻页。\n看背面，USB 朝右。",
         "口袋音乐   2/4\n卡内 MP3 可离线听。\nPWR 播放或暂停。\n双击切歌，长按关机。",
-        "叫醒小鸭   3/4\n\n联网就绪后，喊我\n“小鸭小鸭”，再说句话。\n也可按 BOOT 进入通话。\n长按 BOOT 打开主菜单。",
-        "手机设置   4/4\n\n长按 BOOT 打开菜单。\nPWR 换项，BOOT 确认。\n选“手机配网与模型”扫码。\n想再看？菜单选“使用帮助”。"
+        "叫醒小鸭   3/4\n\n待机短按任一键返回。\n喊“小鸭小鸭”：\n联网通话，离线说口令。\n离线口令需装模型。",
+        "手机设置   4/4\n\n长按 BOOT 打开菜单。\n选“手机与网络”组，\n再选“手机配网与模型”。\n重看：设备设置→使用帮助"
     };
     if (page < 0 || page > 3 || !Lock(3000)) return;
     RenderMenuLocked(messages[page]);

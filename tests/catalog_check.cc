@@ -29,6 +29,16 @@ int main(int argc, char** argv) {
         uint32_t found;
         assert(music_index_find(&index, path, &found) && found == number);
     }
+    uint32_t first, end;
+    assert(music_index_directory(&index, "", &first, &end) && first == 0 && end == index.count);
+    for (auto dir : {"音乐0", "音乐1", "音乐10", "音乐0/专辑0", "空目录"}) {
+        assert(music_index_directory(&index, dir, &first, &end));
+        for (uint32_t i = 0; i < index.count; ++i) {
+            assert(music_index_get(&index, i, path));
+            bool inside = std::string(path).rfind(std::string(dir) + "/",0) == 0;
+            assert(inside == (first <= i && i < end));
+        }
+    }
     uint32_t found = UINT32_MAX;
     assert(music_index_find_title(&index, "missing", &found, nullptr, nullptr) == MUSIC_TITLE_MISSING);
     if (expected_count) {
@@ -37,6 +47,10 @@ int main(int argc, char** argv) {
         assert(music_index_find_title(&index, "0", &found, nullptr, nullptr) == MUSIC_TITLE_FOUND && found == expected);
         assert(music_index_find_title(&index, "0.mp3", &found, nullptr, nullptr) == MUSIC_TITLE_FOUND);
         assert(music_index_find_title(&index, "0", &found, [](void*) { return false; }, nullptr) == MUSIC_TITLE_CANCELLED);
+    }
+    if (expected_count >= 2002) {
+        assert(music_index_directory(&index,"音乐1",&first,&end));
+        assert(music_index_find_title_in(&index,"1",&found,first,end,nullptr,nullptr) == MUSIC_TITLE_FOUND);
     }
     if (expected_count >= 2002)
         assert(music_index_find_title(&index, "1", &found, nullptr, nullptr) == MUSIC_TITLE_AMBIGUOUS);

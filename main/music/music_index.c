@@ -97,6 +97,29 @@ bool music_index_get(music_index_t *index, uint32_t track, char path[MUSIC_PATH_
     return true;
 }
 
+bool music_index_directory(music_index_t *index, const char *dir, uint32_t *first, uint32_t *end)
+{
+    *first = 0;
+    *end = index->count;
+    if (!*dir) return true;
+    char prefix[MUSIC_PATH_CAPACITY], candidate[MUSIC_PATH_CAPACITY];
+    int length = snprintf(prefix, sizeof(prefix), "%s/", dir);
+    if (length < 0 || (size_t)length >= sizeof(prefix)) return false;
+    for (unsigned upper = 0; upper <= 1; ++upper) {
+        uint32_t lo = *first, hi = index->count;
+        while (lo < hi) {
+            uint32_t mid = lo + (hi-lo)/2;
+            if (!music_index_get(index, mid, candidate)) return false;
+            int cmp = strncmp(candidate, prefix, length);
+            if (cmp < 0 || (upper && cmp == 0)) lo = mid + 1;
+            else hi = mid;
+        }
+        if (upper) *end = lo;
+        else *first = lo;
+    }
+    return true;
+}
+
 bool music_index_find(music_index_t *index, const char *relative_path, uint32_t *track)
 {
     char candidate[MUSIC_PATH_CAPACITY];
@@ -124,6 +147,14 @@ bool music_index_find(music_index_t *index, const char *relative_path, uint32_t 
 music_title_result_t music_index_find_title(music_index_t *index, const char *title, uint32_t *track,
                                             bool (*keep_searching)(void *), void *context)
 {
+    return music_index_find_title_in(index, title, track, 0, index->count, keep_searching, context);
+}
+
+music_title_result_t music_index_find_title_in(music_index_t *index, const char *title, uint32_t *track,
+                                               uint32_t begin, uint32_t limit,
+                                               bool (*keep_searching)(void *), void *context)
+{
+    if (begin > limit || limit > index->count) return MUSIC_TITLE_INDEX_ERROR;
     size_t wanted = strlen(title);
     if (wanted > 4 && !strcasecmp(title + wanted - 4, ".mp3")) wanted -= 4;
     if (!wanted || !index->file) return MUSIC_TITLE_MISSING;
@@ -135,9 +166,9 @@ music_title_result_t music_index_find_title(music_index_t *index, const char *ti
     bool partial_ambiguous = false;
     bool matched = false;
     uint32_t match = 0;
-    for (uint32_t first = 0; first < index->count; first += batch_size) {
+    for (uint32_t first = begin; first < limit; first += batch_size) {
         if (keep_searching && !keep_searching(context)) return MUSIC_TITLE_CANCELLED;
-        uint32_t count = index->count - first;
+        uint32_t count = limit - first;
         if (count > batch_size) count = batch_size;
         size_t bytes = 4 * (count + 1);
         if (fseek(index->file, 8L + first * 4L, SEEK_SET) ||

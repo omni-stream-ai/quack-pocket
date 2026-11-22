@@ -502,10 +502,13 @@ void Application::Start() {
     protocol_->OnAudioChannelClosed([this, &board]() {
         board.SetPowerSaveMode(true);
         Schedule([this]() {
+            if (protocol_ && protocol_->IsAudioChannelOpened()) return;
+            if (xEventGroupGetBits(event_group_) & MAIN_EVENT_ERROR) return;
             auto display = Board::GetInstance().GetDisplay();
             if (shortcut_conversation_.exchange(false)) {
                 voice_paused_ = true;
                 display->ShowHome(true);
+                display->ShowVoiceHint("语音通话已结束，再次唤醒可重连", 8000);
             }
             if (!voice_paused_) display->SetChatMessage("system", "");
             SetDeviceState(kDeviceStateIdle);
@@ -550,6 +553,7 @@ void Application::Start() {
                 ESP_LOGI(TAG, ">> %s", text->valuestring);
                 Schedule([this, display, message = std::string(text->valuestring)]() {
                     display->SetChatMessage("user", message.c_str());
+                    Board::GetInstance().HandleVoiceTranscript(message);
                 });
             }
         } else if (strcmp(type->valuestring, "llm") == 0) {
@@ -612,10 +616,11 @@ void Application::Start() {
         Schedule([this, protocol_started]() {
             if (!shortcut_conversation_) return;
             if (protocol_started && !voice_paused_) {
-                Board::GetInstance().GetDisplay()->ShowHome(true);
                 OnWakeWordDetected(false);
             }
-            else SetVoicePaused(true);
+            else if (!voice_paused_) {
+                ReportVoiceFailure("语音服务初始化失败，请检查服务设置");
+            }
         });
     } else if (protocol_started) {
         std::string message = std::string(Lang::Strings::VERSION) + ota.GetCurrentVersion();
@@ -658,7 +663,7 @@ void Application::MainEventLoop() {
             std::string error;
             {
                 std::lock_guard<std::mutex> lock(mutex_);
-                error = last_error_message_;
+                error.swap(last_error_message_);
             }
             if (!board.CanStartVoiceShortcut()) {
                 display->ShowVoiceHint("Wi-Fi 未连接，正在重连", 5000);
@@ -680,9 +685,11 @@ void Application::MainEventLoop() {
         }
 
         if (bits & MAIN_EVENT_WAKE_WORD_DETECTED) {
-            if (Board::GetInstance().FirmwareUpdateActive() || Board::GetInstance().WakeFromVoiceStandby()) {
+            auto& board = Board::GetInstance();
+            if (board.FirmwareUpdateActive()) {
                 audio_service_.EnableWakeWordDetection(true);
             } else {
+                board.WakeFromVoiceStandby();
                 OnWakeWordDetected();
             }
         }
@@ -719,12 +726,20 @@ void Application::MainEventLoop() {
     }
 }
 
+void Application::ReportVoiceFailure(const char* fallback) {
+    // A protocol can report the specific error before OpenAudioChannel returns.
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (last_error_message_.empty()) last_error_message_ = fallback;
+    xEventGroupSetBits(event_group_, MAIN_EVENT_ERROR);
+}
+
 void Application::OnWakeWordDetected(bool acknowledge) {
 #if CONFIG_BOARD_TYPE_WAVESHARE_S3_ePaper_1_54
     auto& board = Board::GetInstance();
-    if (acknowledge && device_state_ == kDeviceStateWifiConfiguring && !board.CanStartVoiceShortcut()) {
-        board.GetDisplay()->ShowVoiceHint("我在。联网后可以语音通话", 3000);
+    if (acknowledge && (device_state_ == kDeviceStateWifiConfiguring || device_state_ == kDeviceStateIdle) &&
+        !board.CanStartVoiceShortcut()) {
         audio_service_.EnableWakeWordDetection(true);
+        board.StartOfflineVoiceCommand();
         return;
     }
     if (acknowledge && (voice_paused_ || device_state_ == kDeviceStateIdle)) {
@@ -750,6 +765,7 @@ void Application::OnWakeWordDetected(bool acknowledge) {
         }
         voice_paused_ = false;
         shortcut_conversation_ = true;
+        Board::GetInstance().GetDisplay()->ShowHome(false);
         if (waiting_for_voice_entry_.exchange(false)) {
             xEventGroupSetBits(event_group_, MAIN_EVENT_ENTER_VOICE);
             return;
@@ -765,11 +781,7 @@ void Application::OnWakeWordDetected(bool acknowledge) {
         if (!protocol_->IsAudioChannelOpened()) {
             SetDeviceState(kDeviceStateConnecting);
             if (!protocol_->OpenAudioChannel()) {
-                if (shortcut_conversation_.exchange(false)) {
-                    voice_paused_ = true;
-                    SetDeviceState(kDeviceStateIdle);
-                    Board::GetInstance().GetDisplay()->ShowHome(true);
-                }
+                if (shortcut_conversation_) ReportVoiceFailure("语音连接失败");
                 audio_service_.EnableWakeWordDetection(true);
                 return;
             }

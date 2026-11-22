@@ -1,4 +1,5 @@
 #include "setup_access.h"
+#include "setup_ble.h"
 #include <algorithm>
 #include <array>
 #include <mutex>
@@ -93,8 +94,19 @@ void AnswerSetupPrompt(const std::string& ticket,bool accept) {
     pending={};
 }
 bool SetupRequestAllowed(httpd_req_t* req) {
-    // Only the WPA2 setup AP has implicit access. BLE's loopback bridge and
-    // every station-side TLS request must present a currently authorized key.
+    // The paired BLE bridge forwards over loopback on port 8871 (or the
+    // setup AP listener on port 80). External clients still need a browser key.
+    char secret[65];
+    if (httpd_req_get_hdr_value_str(req,"X-Pocket-BLE",secret,sizeof(secret))==ESP_OK &&
+        IsSetupBluetoothSecret(secret)) {
+        sockaddr_storage peer{};
+        socklen_t n=sizeof(peer);
+        if (!getpeername(httpd_req_to_sockfd(req),reinterpret_cast<sockaddr*>(&peer),&n)) {
+            if (peer.ss_family==AF_INET && reinterpret_cast<sockaddr_in*>(&peer)->sin_addr.s_addr==htonl(INADDR_LOOPBACK)) return true;
+            const uint8_t mapped[16]={0,0,0,0,0,0,0,0,0,0,255,255,127,0,0,1};
+            if (peer.ss_family==AF_INET6 && !memcmp(&reinterpret_cast<sockaddr_in6*>(&peer)->sin6_addr,mapped,16)) return true;
+        }
+    }
     sockaddr_storage local{};
     socklen_t size=sizeof(local);
     if (!getsockname(httpd_req_to_sockfd(req),reinterpret_cast<sockaddr*>(&local),&size)) {

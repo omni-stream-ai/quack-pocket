@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cstdint>
 
 namespace standby {
@@ -11,6 +12,8 @@ inline constexpr int default_minutes = 5;
 inline bool Valid(int value) {
     return std::find(minutes.begin(), minutes.end(), value) != minutes.end();
 }
+
+inline std::atomic<int> configured_minutes{default_minutes};
 
 inline int Next(int value) {
     auto it = std::find(minutes.begin(), minutes.end(), value);

@@ -93,6 +93,7 @@ private:
     TaskHandle_t check_new_version_task_handle_ = nullptr;
     TaskHandle_t main_event_loop_task_handle_ = nullptr;
 
+    void ReportVoiceFailure(const char* fallback);
     void OnWakeWordDetected(bool acknowledge = true);
     void CheckNewVersion(Ota& ota);
     void CheckAssetsVersion();

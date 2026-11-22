@@ -9,6 +9,7 @@ import os
 import re
 import ssl
 import uuid
+from urllib.parse import urlsplit
 
 import aiohttp
 from aiohttp import web
@@ -16,6 +17,7 @@ import webrtcvad
 
 from .opus import AudioCodec
 from .provider import Provider
+from .realtime import QwenRealtime
 
 SYSTEM = {"role": "system", "content": "你是便携语音助手。使用用户的语言简短回答。用户点播指定歌曲时优先调用 play_file 查找并播放存储卡上的歌曲，无需用户说明“本地”。用户只要求播放音乐而未指定歌曲时，调用 control_music 顺序播放本地曲库。"}
 LOG = logging.getLogger("omni.voice")
@@ -38,6 +40,21 @@ def model_settings(hello):
                 or any(ord(char) < 33 or ord(char) == 127 for char in value)):
             raise ValueError("invalid model setting")
         result[key] = value
+    if "protocol" in values:
+        if values["protocol"] not in ("chat_completions", "responses", "anthropic", "qwen_realtime"):
+            raise ValueError("unsupported model protocol")
+        result["protocol"] = values["protocol"]
+    controls = hello.get("voice_controls")
+    if controls is not None:
+        if not isinstance(controls, dict) or any(type(controls.get(key)) is not bool for key in ("music", "volume", "state")):
+            raise ValueError("invalid voice controls")
+        result["voice_controls"] = {key: controls[key] for key in ("music", "volume", "state")}
+        skills = controls.get("skills", [])
+        if not isinstance(skills, list) or len(skills) > 24:
+            raise ValueError("invalid voice skills")
+        result["local_phrases"] = {s["phrase"] for s in skills if isinstance(s, dict) and
+                                   isinstance(s.get("phrase"), str) and isinstance(s.get("action"), str)
+                                   and result["voice_controls"].get(s["action"])}
     return result
 
 
@@ -72,8 +89,14 @@ class Conversation:
         self.provider = provider
         self.settings = settings
         self.id = uuid.uuid4().hex
-        self.codec = AudioCodec()
         self.vad = webrtcvad.Vad(2)
+        self.realtime = None
+        if settings.get("protocol") == "qwen_realtime":
+            if "realtime" not in provider.upstreams:
+                raise ValueError("configure OMNI_REALTIME_URL on the gateway")
+            endpoint, headers = provider.upstreams["realtime"]
+            self.realtime = QwenRealtime(provider.client, endpoint, headers, settings)
+        self.codec = AudioCodec()
         self.history = deque(maxlen=12)
         self.job = None
         self.listening = False
@@ -118,9 +141,11 @@ class Conversation:
         self.frames += 1
         if speech or self.recording:
             if not self.recording:
-                self.recording.extend(b"".join(self.pre))
+                pcm = b"".join(self.pre) + pcm
                 self.pre.clear()
             self.recording.extend(pcm)
+            if self.realtime:
+                await self.realtime.append(pcm)
             self.silence = 0 if speech else self.silence + 1
         else:
             self.pre.append(pcm)
@@ -137,7 +162,10 @@ class Conversation:
                 self.pending_control = None
                 await self.socket.close()
         elif kind == "listen" and state == "start":
+            interrupted = self.listening or (self.job is not None and not self.job.done())
             await self.cancel()
+            if self.realtime and interrupted:
+                await self.realtime.close()
             self.speaking = False
             self.reset_input()
             self.listening = True
@@ -145,6 +173,8 @@ class Conversation:
             await self.finish()
         elif kind == "abort":
             await self.cancel()
+            if self.realtime:
+                await self.realtime.close()
             if self.speaking:
                 self.speaking = False
                 await self.send("tts", state="stop")
@@ -153,13 +183,23 @@ class Conversation:
 
     async def respond(self, pcm):
         try:
+            if self.realtime:
+                if len(pcm) < 3200:
+                    await self.realtime.append(bytes(3200-len(pcm)))
+                await self.realtime.reply(self)
+                return
             text = await self.provider.transcribe(pcm, self.settings)
             if not text:
                 await self.socket.close()
                 return
             await self.send("stt", text=text)
+            if text.rstrip("。！？.!?") in self.settings.get("local_phrases", ()):
+                await self.socket.close()
+                return
             user = {"role": "user", "content": text}
-            answer = await self.provider.chat([SYSTEM, *self.history, user], self.settings)
+            answer = await self.provider.chat([SYSTEM if self.settings.get("voice_controls", {}).get("music", True)
+                                               else {"role": "system", "content": "你是便携语音助手。使用用户的语言简短回答。"},
+                                               *self.history, user], self.settings)
             calls = answer.get("tool_calls")
             if calls:
                 name, arguments = music_call(calls[0])
@@ -198,6 +238,8 @@ class Conversation:
                     break
         finally:
             await self.cancel()
+            if self.realtime:
+                await self.realtime.close()
             self.codec.close()
 
 
@@ -223,7 +265,9 @@ def make_app(devices, provider_factory):
             settings = model_settings(json.loads(first))
             conversation = Conversation(socket, app[PROVIDER], settings)
             await conversation.run()
-        except (ValueError, TypeError, TimeoutError, ConnectionError):
+        except (aiohttp.ClientError, ValueError, KeyError, TypeError, TimeoutError, ConnectionError):
+            if socket.prepared and not socket.closed:
+                await socket.send_json({"type":"alert","status":"语音服务","message":"请检查网关协议、模型与上游地址","emotion":"sad"})
             if socket.prepared:
                 await socket.close(code=1002)
         finally:
@@ -243,6 +287,30 @@ def make_app(devices, provider_factory):
 PROVIDER = web.AppKey("provider", Provider)
 
 
+def provider_upstreams(env):
+    shared_url = env.get("OMNI_PROVIDER_URL", "").rstrip("/")
+    routes = {}
+    for stage in ("llm", "asr", "tts", "responses", "anthropic", "realtime"):
+        prefix = "OMNI_" + stage.upper()
+        optional = stage in ("responses", "anthropic", "realtime")
+        if optional and not env.get(prefix + "_URL"):
+            continue
+        url = env.get(prefix + "_URL", shared_url).rstrip("/")
+        if not url and (env.get("OMNI_REALTIME_URL") or
+                        (stage == "llm" and (env.get("OMNI_RESPONSES_URL") or env.get("OMNI_ANTHROPIC_URL")))):
+            continue
+        parsed = urlsplit(url)
+        secure, local = ("wss", "ws") if stage == "realtime" else ("https", "http")
+        local_http = parsed.scheme == local and parsed.hostname in ("localhost", "127.0.0.1", "::1")
+        if (not parsed.hostname or parsed.username is not None or parsed.query or parsed.fragment or
+                (parsed.scheme != secure and not local_http)):
+            raise ValueError(f"{prefix}_URL requires {secure} or loopback {local}")
+        # Credentials may only fall back when the destination matches the shared endpoint.
+        key = env.get(prefix + "_KEY", env.get("OMNI_PROVIDER_KEY", "") if url == shared_url else "")
+        routes[stage] = (url, {"Authorization": "Bearer " + key} if key else {})
+    return routes
+
+
 def main():
     from contextlib import asynccontextmanager
     devices = json.loads(os.environ["OMNI_DEVICES"])
@@ -251,16 +319,13 @@ def main():
         for key, value in devices.items()
     ):
         raise ValueError("OMNI_DEVICES requires lowercase MAC addresses and device tokens of at least 24 characters")
-    base = os.environ["OMNI_PROVIDER_URL"]
-    if not base.startswith("https://"):
-        raise ValueError("OMNI_PROVIDER_URL must be HTTPS")
-    defaults = {key: os.environ["OMNI_" + key.upper()] for key in ("asr", "tts", "voice")}
-    auth = {"Authorization": "Bearer " + os.environ["OMNI_PROVIDER_KEY"]}
+    upstreams = provider_upstreams(os.environ)
+    defaults = {key: os.getenv("OMNI_" + key.upper(), "") for key in ("asr", "tts", "voice")}
 
     @asynccontextmanager
     async def provider():
-        async with aiohttp.ClientSession(headers=auth, timeout=aiohttp.ClientTimeout(total=150, connect=10, sock_read=30)) as client:
-            yield Provider(client, base, defaults)
+        async with aiohttp.ClientSession(cookie_jar=aiohttp.DummyCookieJar(), timeout=aiohttp.ClientTimeout(total=150, connect=10, sock_read=30)) as client:
+            yield Provider(client, upstreams.get("llm", ("", {}))[0], defaults, upstreams=upstreams)
 
     tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     tls.minimum_version = ssl.TLSVersion.TLSv1_2

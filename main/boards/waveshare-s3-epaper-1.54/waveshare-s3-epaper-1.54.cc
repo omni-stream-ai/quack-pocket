@@ -1,3 +1,4 @@
+#include "voice/control_policy.h"
 #ifdef OMNI_MUSIC_HIL
 #include "music_hil.h"
 #endif
@@ -24,7 +25,11 @@
 #include <font_awesome.h>
 #include "mcp_server.h"
 #include "music_player.h"
+#include "pocket_checklist.h"
+#include "pocket_memo.h"
+#include "pocket_media.h"
 #include "phone_setup.h"
+#include "setup_ble.h"
 #include "setup_access.h"
 #include "pocket_update.h"
 #include <esp_app_desc.h>
@@ -51,7 +56,9 @@ private:
     std::atomic<NetworkPage> network_page_{NetworkPage::Hidden};
 
     std::atomic<bool> menu_open_{false};
+    size_t group_ = 0;
     size_t item_ = 0;
+    bool in_group_ = false;
     std::atomic<int> guide_page_{-1};
     std::atomic<TaskHandle_t> guide_waiter_{nullptr};
     void BeginGuide() {
@@ -73,18 +80,37 @@ private:
         }
         return true;
     }
-    enum MenuItem { Chat, Play, Next, Sequential, Shuffle, VolumeDown, VolumeUp, Refresh,
-                    Phone, LanSetup, Trusted, OfflineVoice, InstallModel, WakeSetting, StandbyTimeout, Update, Help, Return, ItemCount };
+    enum MenuItem { Play, Next, Sequential, Shuffle, VolumeDown, VolumeUp, Refresh, Story, Favorites,
+                    Chat, OfflineVoice, InstallModel, WakeSetting, RecordMemo, HearMemo,
+                    Phone, LanSetup, Bluetooth, Trusted, StandbyTimeout, Update, Help, Checklist, ItemCount };
     struct MenuEntry { const char* title; const char* icon; };
     static constexpr MenuEntry items_[ItemCount] = {
-        {"语音通话", FONT_AWESOME_COMMENT}, {"播放 / 暂停", FONT_AWESOME_MUSIC},
-        {"下一首", FONT_AWESOME_FORWARD_STEP}, {"顺序播放", FONT_AWESOME_ARROWS_REPEAT},
-        {"随机播放", FONT_AWESOME_MUSIC}, {"调小音量", FONT_AWESOME_VOLUME_LOW},
-        {"调大音量", FONT_AWESOME_VOLUME_HIGH}, {"刷新曲库", FONT_AWESOME_ARROWS_ROTATE},
-        {"手机配网与模型", FONT_AWESOME_WIFI}, {"同网扫码管理", FONT_AWESOME_WIFI}, {"已授权设备", FONT_AWESOME_GEAR}, {"说一句音乐口令", FONT_AWESOME_MICROPHONE},
-        {"安装离线模型", FONT_AWESOME_DOWNLOAD}, {"语音唤醒", FONT_AWESOME_MICROPHONE}, {"自动待机时间", FONT_AWESOME_CLOCK}, {"检查更新", FONT_AWESOME_DOWNLOAD}, {"使用帮助", FONT_AWESOME_CIRCLE_QUESTION},
-        {"返回", FONT_AWESOME_ARROW_LEFT}
+        {"播放 / 暂停", FONT_AWESOME_MUSIC}, {"下一首", FONT_AWESOME_FORWARD_STEP},
+        {"顺序播放", FONT_AWESOME_ARROWS_REPEAT}, {"随机播放", FONT_AWESOME_MUSIC},
+        {"调小音量", FONT_AWESOME_VOLUME_LOW}, {"调大音量", FONT_AWESOME_VOLUME_HIGH},
+        {"刷新曲库", FONT_AWESOME_ARROWS_ROTATE}, {"继续听故事", FONT_AWESOME_MUSIC}, {"我的收藏", FONT_AWESOME_MUSIC},
+        {"语音通话", FONT_AWESOME_COMMENT}, {"说一句音乐口令", FONT_AWESOME_MICROPHONE},
+        {"安装离线模型", FONT_AWESOME_DOWNLOAD}, {"语音唤醒", FONT_AWESOME_MICROPHONE}, {"录一条留言", FONT_AWESOME_MICROPHONE}, {"听最近留言", FONT_AWESOME_COMMENT},
+        {"手机配网与模型", FONT_AWESOME_WIFI}, {"同网扫码管理", FONT_AWESOME_WIFI},
+        {"蓝牙开关", FONT_AWESOME_GEAR}, {"已授权设备", FONT_AWESOME_GEAR}, {"自动待机时间", FONT_AWESOME_CLOCK},
+        {"检查更新", FONT_AWESOME_DOWNLOAD}, {"使用帮助", FONT_AWESOME_CIRCLE_QUESTION}, {"口袋清单", FONT_AWESOME_GEAR}
     };
+    struct MenuGroup { const char* title; const char* icon; const char* hint; MenuItem first, last; };
+    static constexpr MenuGroup groups_[] = {
+        {"音乐播放", FONT_AWESOME_MUSIC, "播放 · 音量 · 曲库", Play, Favorites},
+        {"语音互动", FONT_AWESOME_MICROPHONE, "对话 · 口令 · 唤醒", Chat, HearMemo},
+        {"手机与网络", FONT_AWESOME_WIFI, "配网 · 扫码 · 授权", Phone, Trusted},
+        {"设备设置", FONT_AWESOME_GEAR, "待机 · 更新 · 帮助", StandbyTimeout, Checklist}
+    };
+
+    void MoveMenu(bool previous) {
+        const auto& group = groups_[group_];
+        size_t first = in_group_ ? static_cast<size_t>(group.first) : 0;
+        size_t count = in_group_ ? group.last - group.first + 1 : std::size(groups_);
+        size_t& cursor = in_group_ ? item_ : group_;
+        cursor = first + (cursor - first + (previous ? count - 1 : 1)) % count;
+        RenderMenu();
+    }
 
     esp_timer_handle_t green_off_ = nullptr;
     std::atomic<int64_t> next_green_{0};
@@ -142,34 +168,121 @@ private:
         bool charging, discharging;
         std::string battery = GetBatteryLevel(level, charging, discharging)
             ? std::to_string(level) + "%" : "--%";
+        const auto& group = groups_[group_];
+        const size_t page = in_group_ ? item_ - group.first + 1 : group_ + 1;
+        const size_t count = in_group_ ? group.last - group.first + 1 : std::size(groups_);
+        std::string header = std::string(in_group_ ? group.title : "主菜单") + "   " +
+            std::to_string(page) + "/" + std::to_string(count) + "      " + battery;
+        if (!in_group_) {
+            display_->ShowMenu(header, group.icon, group.title, group.hint);
+            return;
+        }
         auto title = items_[item_].title;
         if (item_ == Chat && WifiStation::GetInstance().IsConnected() &&
             !Application::GetInstance().IsVoicePaused()) title = "退出语音通话";
-        std::string header = "主菜单   " + std::to_string(item_ + 1) + "/" +
-            std::to_string(ItemCount) + "      " + battery;
         std::string detail;
         if (item_ == VolumeDown || item_ == VolumeUp)
             detail = "当前音量 " + std::to_string(GetAudioCodec()->output_volume());
+        if (item_ == Bluetooth) detail = SetupBluetoothEnabled() ? "已开启，确认关闭" : "已关闭，确认开启";
         if (item_ == WakeSetting) detail = wake_allowed_ ? "已开启，确认关闭" : "已关闭，确认开启";
-        if (item_ == StandbyTimeout) detail = standby_minutes_ ?
-            std::to_string(standby_minutes_.load()) + (wake_allowed_ ? " 分钟 · 确认更改" : " 分钟 · 需开语音唤醒") : "关闭 · 确认更改";
+        if (item_ == StandbyTimeout) detail = standby::configured_minutes ?
+            std::to_string(standby::configured_minutes.load()) + (wake_allowed_ ? " 分钟 · 确认更改" : " 分钟 · 需开语音唤醒") : "关闭 · 确认更改";
         if (item_ == Update) detail = std::string("当前版本 ") + esp_app_get_description()->version;
         display_->ShowMenu(header, items_[item_].icon, title, detail);
+    }
+
+    std::atomic<bool> lan_switching_{false};
+    int lan_option_ = -1;
+    void ShowLanOptions() {
+        bool background = BackgroundManagementEnabled();
+        display_->ShowMenu("同网扫码管理", FONT_AWESOME_WIFI,
+            lan_option_ == 0 ? "显示管理二维码" : "后台设置服务",
+            lan_option_ == 0 ? "BOOT 打开本次管理" : (background ? "已开启 · BOOT 关闭" : "已关闭 · BOOT 开启"),
+            "PWR 切换 · 长按 BOOT 返回");
+    }
+    bool LanButton(bool confirm) {
+        if (lan_option_ < 0) return false;
+        if (lan_switching_) return true;
+        if (!confirm) {
+            lan_option_ = 1 - lan_option_;
+            ShowLanOptions();
+        } else if (lan_option_ == 0) {
+            if (!WifiStation::GetInstance().IsConnected()) {
+                display_->ShowNotification("请先连接家庭 Wi-Fi");
+            } else {
+                { Settings mode("omni_mode",true); mode.SetInt("lan_setup",1); }
+                esp_restart();
+            }
+        } else {
+            // TLS startup and shutdown must not block the button timer task.
+            lan_switching_ = true;
+            auto switch_service = [](void* arg) {
+                auto* board = static_cast<CustomBoard*>(arg);
+                bool ok = ApplyBackgroundManagement(board->display_,!BackgroundManagementEnabled());
+                board->ShowLanOptions();
+                if (!ok) board->display_->ShowNotification("后台服务切换失败，请重试");
+                board->lan_switching_ = false;
+                vTaskDelete(nullptr);
+            };
+            if (xTaskCreate(switch_service,"lan_switch",8192,this,3,nullptr)!=pdPASS) {
+                lan_switching_ = false;
+                display_->ShowNotification("后台服务正忙，请重试");
+            }
+        }
+        return true;
     }
 
     int peer_index_ = -1;
     bool confirm_remove_ = false;
     std::vector<SetupPeer> peers_;
+    int favorite_index_ = -1;
+    void FavoritePage(bool play, bool next) {
+        auto favorites = pocket_media::Load("favorites");
+        int count = cJSON_GetArraySize(favorites.get());
+        if (!count) { favorite_index_ = -1; RenderMenu(); display_->ShowVoiceHint("请先在手机上收藏歌曲", 4000); return; }
+        favorite_index_ = (favorite_index_ + next) % count;
+        auto* item = cJSON_GetArrayItem(favorites.get(),favorite_index_);
+        if (!cJSON_IsString(item)) { favorite_index_ = -1; RenderMenu(); return; }
+        if (play) {
+            if (!music_.Request(MusicAction::PlayFile,item->valuestring)) { display_->ShowNotification("播放器正忙"); return; }
+            favorite_index_ = -1; menu_open_=false; display_->CloseMenu();
+        } else display_->ShowUpdatePage("我的收藏 " + std::to_string(favorite_index_+1) + "/" +
+            std::to_string(count) + "\n\n" + item->valuestring + "\n\nBOOT 播放 · PWR 下一首\n长按 BOOT 返回");
+    }
+    int checklist_index_ = -1;
+    void ChecklistPage(bool toggle, bool next) {
+        std::lock_guard<std::mutex> guard(pocket_list::lock);
+        pocket_list::List items;
+        auto result = pocket_list::Read(items);
+        if (result != ESP_OK || items.empty()) {
+            checklist_index_ = -1;
+            RenderMenu();
+            display_->ShowVoiceHint(result == ESP_OK ? "请先在手机端设置清单" : "清单读取失败，请重试", 4000);
+            return;
+        }
+        checklist_index_ = (checklist_index_ + static_cast<int>(next)) % items.size();
+        auto& item = items[checklist_index_];
+        if (toggle) {
+            item.checked = !item.checked;
+            if (pocket_list::Write(items) != ESP_OK) {
+                display_->ShowNotification("保存失败，请重试");
+                return;
+            }
+        }
+        display_->ShowUpdatePage("口袋清单 " + std::to_string(checklist_index_ + 1) +
+            "/" + std::to_string(items.size()) + "\n\n" + (item.checked ? "已完成 " : "待完成 ") +
+            item.text + "\n\nBOOT 切换 · PWR 下一项\n长按 BOOT 返回");
+    }
     void ShowPeers() {
         if (peer_index_ == static_cast<int>(peers_.size())) {
             display_->ShowMenu("已授权设备", FONT_AWESOME_ARROW_LEFT, "返回",
-                peers_.empty() ? "尚未授权浏览器" : "BOOT 返回 · PWR 翻页");
+                peers_.empty() ? "尚未授权浏览器" : "BOOT 返回 · PWR 翻页", "PWR 短按翻页");
             return;
         }
         const auto& peer = peers_[peer_index_];
         std::string detail = peer.id.substr(0,8) + (confirm_remove_ ? " · BOOT 确认删除" : " · BOOT 删除");
         display_->ShowMenu(confirm_remove_ ? "删除授权？PWR 取消" : "已授权设备 · PWR 翻页",
-                           FONT_AWESOME_GEAR,peer.name.c_str(),detail);
+                           FONT_AWESOME_GEAR,peer.name.c_str(),detail, confirm_remove_ ? "PWR 短按取消" : "PWR 短按翻页");
     }
     bool PeerButton(bool confirm) {
         if (peer_index_ < 0) return false;
@@ -191,11 +304,15 @@ private:
     }
 
     void ToggleMenu() {
-        if (menu_open_) {
+        if (menu_open_ && in_group_) {
+            in_group_ = false;
+            RenderMenu();
+        } else if (menu_open_) {
             menu_open_ = false;
             display_->CloseMenu();
         } else {
-            item_ = 0;
+            group_ = 0;
+            in_group_ = false;
             menu_open_ = true;
             display_->ShowVoiceHint("", 0);
             RenderMenu();
@@ -203,7 +320,6 @@ private:
     }
 
     std::atomic<bool> wake_allowed_{true};
-    std::atomic<int> standby_minutes_{standby::default_minutes};
     std::mutex standby_mutex_;
     standby::Timer standby_timer_;
     wifi_ps_type_t previous_wifi_ps_ = WIFI_PS_MIN_MODEM;
@@ -266,13 +382,27 @@ private:
     }
 
     void SelectItem() {
+        if (!in_group_) {
+            in_group_ = true;
+            item_ = groups_[group_].first;
+            RenderMenu();
+            return;
+        }
+        if (item_ == Favorites) { favorite_index_ = 0; FavoritePage(false,false); return; }
+        if (item_ == Checklist) { checklist_index_ = 0; ChecklistPage(false, false); return; }
         if (item_ == Update) { StartUpdate(false); return; }
+        if (item_ == Bluetooth) {
+            bool enable=!SetupBluetoothEnabled();
+            if (!SetSetupBluetoothEnabled(enable)) display_->ShowNotification("蓝牙切换失败，请重试");
+            RenderMenu(); return;
+        }
+        if (item_ == LanSetup) { lan_option_ = 0; ShowLanOptions(); return; }
         if (item_ == Trusted) {
             peers_ = SetupPeers(); peer_index_=0; confirm_remove_=false; ShowPeers(); return;
         }
         if (item_ == StandbyTimeout) {
-            standby_minutes_ = standby::Next(standby_minutes_);
-            Settings("omni_ui", true).SetInt("standby_min", standby_minutes_);
+            standby::configured_minutes = standby::Next(standby::configured_minutes);
+            Settings("omni_ui", true).SetInt("standby_min", standby::configured_minutes);
             RenderMenu();
             return;
         }
@@ -296,7 +426,8 @@ private:
             RenderMenu();
             return;
         }
-        ToggleMenu();
+        menu_open_ = false;
+        display_->CloseMenu();
         switch (item_) {
             case Chat: {
                 if (!WifiStation::GetInstance().IsConnected()) {
@@ -307,6 +438,9 @@ private:
                 app.SetVoicePaused(!app.IsVoicePaused());
                 break;
             }
+            case RecordMemo: RequestMusicFromButton(MusicAction::RecordMemo); break;
+            case HearMemo: RequestMusicFromButton(MusicAction::HearMemo); break;
+            case Story: RequestMusicFromButton(MusicAction::Story); break;
             case Play: RequestMusicFromButton(MusicAction::Toggle); break;
             case Next: RequestMusicFromButton(MusicAction::Next); break;
             case Sequential: RequestMusicFromButton(MusicAction::Sequential); break;
@@ -323,13 +457,6 @@ private:
                 RequestMusicFromButton(MusicAction::Listen);
                 break;
             case Help: BeginGuide(); break;
-            case LanSetup:
-                if (!WifiStation::GetInstance().IsConnected()) {
-                    display_->ShowNotification("请先连接家庭 Wi-Fi"); break;
-                }
-                { Settings mode("omni_mode",true); mode.SetInt("lan_setup",1); }
-                esp_restart();
-                break;
             case Phone: ResetWifiConfiguration(); break;
             default: break;
         }
@@ -342,8 +469,9 @@ private:
     }
 #else
     void StartNetwork() override {
+        InitializeSetupBluetooth(display_);
         int timeout = Settings("omni_ui").GetInt("standby_min", standby::default_minutes);
-        standby_minutes_ = standby::Valid(timeout) ? timeout : standby::default_minutes;
+        standby::configured_minutes = standby::Valid(timeout) ? timeout : standby::default_minutes;
         wake_allowed_ = Settings("omni_ui").GetInt("wake", 1);
         Application::GetInstance().GetAudioService().SetWakeWordAllowed(wake_allowed_);
         if (!Settings("omni_ui").GetInt("guided", 0)) {
@@ -358,6 +486,7 @@ private:
             return;
         }
         if (!wifi_config_mode_ && SsidManager::GetInstance().GetSsidList().empty()) {
+            EnableOfflineSetupScan();
             Application::GetInstance().SetDeviceState(kDeviceStateWifiConfiguring);
             network_page_ = NetworkPage::Home;
             display_->ShowDisconnectedHome(false);
@@ -372,6 +501,7 @@ private:
             Application::GetInstance().SetDeviceState(kDeviceStateWifiConfiguring);
             RunPhoneSetup(display_,true);
         }
+        StartBackgroundManagement(display_);
         if (Settings("omni_mode").GetInt("install_model", 0) && WifiStation::GetInstance().IsConnected()) {
             Settings("omni_mode", true).SetInt("install_model", 0);
             RequestMusicFromButton(MusicAction::InstallModel);
@@ -409,7 +539,11 @@ private:
 
     void MonitorWifi() {
         for (;;) {
-            if (!WifiStation::GetInstance().IsConnected()) WaitForWifiRecovery();
+            auto& station = WifiStation::GetInstance();
+            if (!station.IsConnected()) {
+                if (!station.WaitForConnected(3000)) WaitForWifiRecovery();
+                StartBackgroundManagement(display_);
+            }
             vTaskDelay(pdMS_TO_TICKS(1500));
         }
     }
@@ -465,11 +599,16 @@ private:
 
     void InitializeButtons() { 
         boot_button_.OnClick([this]() {
-            if (UpdateButton(true) || ShowPhoneSetupIfActive(true) || PeerButton(true)) return;
+            if (music_.FinishRecording()) return;
+            if (WakeFromVoiceStandby()) return;
+            if (favorite_index_ >= 0) { FavoritePage(true,false); return; }
+            if (checklist_index_ >= 0) { ChecklistPage(true, false); return; }
+            if (UpdateButton(true) || ShowPhoneSetupIfActive(true) || LanButton(true) || PeerButton(true)) return;
             if (!AcceptUserAction()) return;
             if (GuideButton(false)) return;
             if (display_->WakeScreen()) return;
             if (menu_open_) { SelectItem(); return; }
+            if (PocketMemoUnread() && (network_page_ == NetworkPage::Home || (network_page_ == NetworkPage::Hidden && Application::GetInstance().GetDeviceState() == kDeviceStateIdle))) { RequestMusicFromButton(MusicAction::HearMemo); return; }
             auto expected = NetworkPage::Disconnected;
             if (network_page_.compare_exchange_strong(expected, NetworkPage::Home)) return;
             if (expected == NetworkPage::Home) { RequestMusicFromButton(MusicAction::Listen); return; }
@@ -486,36 +625,43 @@ private:
         });
 
         pwr_button_.OnClick([this]() {
-            if (UpdateButton(false) || ShowPhoneSetupIfActive(false) || PeerButton(false)) return;
+            if (WakeFromVoiceStandby()) return;
+            if (favorite_index_ >= 0) { FavoritePage(false,true); return; }
+            if (checklist_index_ >= 0) { ChecklistPage(false, true); return; }
+            if (UpdateButton(false) || ShowPhoneSetupIfActive(false) || LanButton(false) || PeerButton(false)) return;
             if (!AcceptUserAction()) return;
             if (GuideButton(true)) return;
             if (display_->WakeScreen()) return;
-            if (menu_open_) { item_ = (item_ + 1) % ItemCount; RenderMenu(); }
+            if (menu_open_) MoveMenu(false);
             else if (network_page_ == NetworkPage::Disconnected) ResetWifiConfiguration();
             else RequestMusicFromButton(MusicAction::Toggle);
         });
         pwr_button_.OnDoubleClick([this]() {
             if (PhoneSetupActive()) return;
-            if (peer_index_ >= 0) return;
+            if (lan_option_ >= 0 || peer_index_ >= 0 || favorite_index_ >= 0 || checklist_index_ >= 0) return;
             if (!AcceptUserAction()) return;
             if (guide_page_ >= 0) return;
-            if (menu_open_) { item_ = (item_ + ItemCount - 1) % ItemCount; RenderMenu(); }
+            if (menu_open_) MoveMenu(true);
             else RequestMusicFromButton(MusicAction::Next);
         });
         boot_button_.OnLongPress([this]() {
             if (PhoneSetupActive()) return;
             if (!AcceptUserAction()) return;
+            if (favorite_index_ >= 0) { favorite_index_=-1; RenderMenu(); return; }
+            if (checklist_index_ >= 0) { checklist_index_=-1; RenderMenu(); return; }
+            if (lan_switching_) return;
+            if (lan_option_ >= 0) { lan_option_=-1; RenderMenu(); return; }
             if (peer_index_ >= 0) { peer_index_=-1; RenderMenu(); return; }
             if (!GuideButton(true)) ToggleMenu(); });
         boot_button_.OnDoubleClick([this]() {
             if (PhoneSetupActive()) return;
-            if (peer_index_ >= 0) return;
+            if (lan_option_ >= 0 || peer_index_ >= 0 || favorite_index_ >= 0 || checklist_index_ >= 0) return;
             if (!AcceptUserAction()) return;
             if (guide_page_ < 0 && !menu_open_) RequestMusicFromButton(MusicAction::ChangeMode); });
 
         boot_button_.OnMultipleClick([this]() {
             if (PhoneSetupActive()) return;
-            if (peer_index_ >= 0) return;
+            if (lan_option_ >= 0 || peer_index_ >= 0 || favorite_index_ >= 0 || checklist_index_ >= 0) return;
             if (!AcceptUserAction()) return;
             if (guide_page_ < 0 && !menu_open_) RequestMusicFromButton(MusicAction::Refresh); }, 3);
 
@@ -632,7 +778,40 @@ public:
         return standby_timer_.Input(NowMs());
     }
 
+    void HandleVoiceTranscript(const std::string& transcript) override {
+        std::string phrase = transcript;
+        for (auto suffix : {"。","！","？",".","!","?"}) {
+            size_t n = strlen(suffix);
+            if (phrase.size() >= n && phrase.compare(phrase.size()-n,n,suffix) == 0)
+                phrase.resize(phrase.size()-n);
+        }
+        auto policy = voice_control::Load();
+        auto skills = cJSON_GetObjectItem(policy.get(), "skills");
+        cJSON* skill;
+        cJSON_ArrayForEach(skill, skills) {
+            auto trigger = cJSON_GetObjectItem(skill, "phrase");
+            auto action = cJSON_GetObjectItem(skill, "action");
+            if (!cJSON_IsString(trigger) || phrase != trigger->valuestring || !cJSON_IsString(action)) continue;
+            std::string group = action->valuestring;
+            if (!cJSON_IsTrue(cJSON_GetObjectItem(policy.get(),group.c_str()))) return;
+            auto arg = cJSON_GetObjectItem(skill,"argument");
+            if (group == "state") Application::GetInstance().SetVoicePaused(true);
+            if (group == "volume") {
+                auto* codec = GetAudioCodec();
+                codec->SetOutputVolume(cJSON_IsNumber(arg) ? arg->valueint : std::min(100, codec->output_volume()+10));
+            }
+            if (group == "music" && (cJSON_IsString(arg) ? music_.Request(MusicAction::PlayFile,arg->valuestring)
+                                                         : music_.Request(MusicAction::Sequential)))
+                Application::GetInstance().FinishChatForMusic();
+            return;
+        }
+    }
+
     void CheckVoiceStandby() override {
+        if (ManagementInUse()) {
+            WakeFromVoiceStandby();
+            return;
+        }
         auto& app = Application::GetInstance();
         auto& audio = app.GetAudioService();
         auto state = app.GetDeviceState();
@@ -642,7 +821,7 @@ public:
             !audio.IsAudioProcessorRunning() && audio.IsIdle() && !music_.IsBusy();
         std::lock_guard<std::mutex> lock(standby_mutex_);
         auto now = NowMs();
-        if (!standby_timer_.Tick(now, standby_minutes_, ready)) return;
+        if (!standby_timer_.Tick(now, standby::configured_minutes, ready)) return;
         if (!display_->ShowVoiceStandby(true)) {
             standby_timer_.Wake(now);
             return;
@@ -664,6 +843,10 @@ public:
             restore_wifi_ps_ = false;
         }
         return true;
+    }
+
+    void StartOfflineVoiceCommand() override {
+        RequestMusicFromButton(MusicAction::Listen);
     }
 
     bool CanStartVoiceShortcut() override {

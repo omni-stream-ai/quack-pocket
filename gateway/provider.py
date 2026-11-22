@@ -54,10 +54,15 @@ async def response_json(response):
 
 
 class Provider:
-    def __init__(self, client, base, defaults):
+    def __init__(self, client, base, defaults, *, upstreams=None):
         self.client = client
         self.base = base.rstrip("/")
         self.defaults = defaults
+        self.upstreams = upstreams or {}
+
+    def post(self, stage, path, **kwargs):
+        base, headers = self.upstreams.get(stage, (self.base, {}))
+        return self.client.post(base + path, headers=headers, allow_redirects=False, **kwargs)
 
     async def transcribe(self, pcm, settings):
         buffer = io.BytesIO()
@@ -67,7 +72,7 @@ class Provider:
         form = aiohttp.FormData()
         form.add_field("model", settings.get("asr") or self.defaults["asr"])
         form.add_field("file", buffer.getvalue(), filename="speech.wav", content_type="audio/wav")
-        async with self.client.post(self.base + "/audio/transcriptions", data=form, allow_redirects=False) as response:
+        async with self.post("asr", "/audio/transcriptions", data=form) as response:
             body = await response_json(response)
         text = body.get("text")
         if not isinstance(text, str) or len(text) > 8192:
@@ -75,20 +80,55 @@ class Provider:
         return text.strip()
 
     async def chat(self, messages, settings):
-        request = {"model": settings["model"], "messages": messages, "max_tokens": 512}
         phrase = messages[-1]["content"]
-        tools = list(MUSIC_TOOLS) if _MUSIC_REQUEST.search(phrase) else []
-        if re.search(r"音量|声音|聲音|大[声聲]|小[声聲]|静音|靜音|volume|louder|quieter|mute", phrase, re.I):
+        enabled = settings.get("voice_controls", {})
+        tools = list(MUSIC_TOOLS) if enabled.get("music", True) and _MUSIC_REQUEST.search(phrase) else []
+        if enabled.get("volume", True) and re.search(r"音量|声音|聲音|大[声聲]|小[声聲]|静音|靜音|volume|louder|quieter|mute", phrase, re.I):
             tools.extend(VOLUME_TOOLS)
         if re.search(r"重新配网|重新配網|打开.{0,4}设置|打開.{0,4}設置|open settings", phrase, re.I):
             tools.append(SETUP_TOOL)
-        if re.search(r"本地模式|(?:返回|回到|回|去)首页|(?:退出|结束|关闭).{0,4}(?:通话|语音|小智)|local mode", phrase, re.I):
+        if enabled.get("state", True) and re.search(r"本地模式|(?:返回|回到|回|去)首页|(?:退出|结束|关闭).{0,4}(?:通话|语音|小智)|local mode", phrase, re.I):
             tools.append(LOCAL_MODE_TOOL)
-        if tools:
-            request["tools"] = tools
-        async with self.client.post(self.base + "/chat/completions", json=request, allow_redirects=False) as response:
-            body = await response_json(response)
-        answer = body["choices"][0]["message"]
+        protocol = settings.get("protocol", "chat_completions")
+        model = settings["model"]
+        stage = protocol if protocol in self.upstreams else "llm"
+        if protocol == "responses":
+            request = {"model": model, "input": messages, "max_output_tokens": 512, "store": False}
+            if tools:
+                request["tools"] = [{"type": "function", **tool["function"]} for tool in tools]
+            async with self.post(stage, "/responses", json=request) as response:
+                body = await response_json(response)
+            if body.get("status") != "completed":
+                raise ValueError("incomplete Responses output")
+            texts, calls = [], []
+            for item in body["output"]:
+                if item["type"] == "message":
+                    texts.extend(part["text"] for part in item["content"] if part["type"] == "output_text")
+                elif item["type"] == "function_call":
+                    calls.append({"function": {"name": item["name"], "arguments": item["arguments"]}})
+            answer = {"content": "".join(texts), "tool_calls": calls}
+        elif protocol == "anthropic":
+            base, auth = self.upstreams.get(stage, (self.base, {}))
+            headers = {"anthropic-version": "2023-06-01"}
+            if auth.get("Authorization"):
+                headers["x-api-key"] = auth["Authorization"].removeprefix("Bearer ")
+            request = {"model": model, "system": messages[0]["content"], "messages": messages[1:], "max_tokens": 512}
+            if tools:
+                request["tools"] = [{"name": f["name"], "description": f["description"], "input_schema": f["parameters"]}
+                                    for f in (tool["function"] for tool in tools)]
+            async with self.client.post(base + "/messages", json=request, headers=headers, allow_redirects=False) as response:
+                body = await response_json(response)
+            blocks = body["content"]
+            answer = {"content": "".join(block["text"] for block in blocks if block["type"] == "text"),
+                      "tool_calls": [{"function": {"name": block["name"], "arguments": json.dumps(block["input"])}}
+                                     for block in blocks if block["type"] == "tool_use"]}
+        else:
+            request = {"model": model, "messages": messages, "max_tokens": 512}
+            if tools:
+                request["tools"] = tools
+            async with self.post("llm", "/chat/completions", json=request) as response:
+                body = await response_json(response)
+            answer = body["choices"][0]["message"]
         allowed = {tool["function"]["name"] for tool in tools}
         if any(call.get("function", {}).get("name") not in allowed for call in answer.get("tool_calls") or []):
             return {"content": "我没听清，请再说一次。"}
@@ -97,7 +137,7 @@ class Provider:
     async def speak(self, text, settings, codec, socket):
         request = {"model": settings.get("tts") or self.defaults["tts"], "voice": settings.get("voice") or self.defaults["voice"],
                    "input": text, "response_format": "pcm"}
-        async with self.client.post(self.base + "/audio/speech", json=request, allow_redirects=False) as response:
+        async with self.post("tts", "/audio/speech", json=request) as response:
             response.raise_for_status()
             pending = bytearray()
             received = 0

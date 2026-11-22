@@ -5,6 +5,7 @@
 
 struct VoiceProfile {
     std::string url, token, model, asr, tts, voice;
+    std::string protocol = "chat_completions";
     bool Custom() const { return !url.empty(); }
     bool Valid() const;
     bool Save(const std::string& ssid = {}, const std::string& password = {}) const;

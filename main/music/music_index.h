@@ -23,6 +23,8 @@ bool music_index_open(music_index_t *index, const char *filename);
 void music_index_close(music_index_t *index);
 bool music_index_get(music_index_t *index, uint32_t track, char path[MUSIC_PATH_CAPACITY]);
 
+/* Sorted half-open interval of tracks beneath a relative directory. */
+bool music_index_directory(music_index_t *index, const char *dir, uint32_t *first, uint32_t *end);
 bool music_index_find(music_index_t *index, const char *relative_path, uint32_t *track);
 
 typedef enum {
@@ -30,6 +32,9 @@ typedef enum {
     MUSIC_TITLE_INDEX_ERROR, MUSIC_TITLE_CANCELLED
 } music_title_result_t;
 
+music_title_result_t music_index_find_title_in(music_index_t *index, const char *title, uint32_t *track,
+                                               uint32_t begin, uint32_t limit,
+                                               bool (*keep_searching)(void *), void *context);
 music_title_result_t music_index_find_title(music_index_t *index, const char *title, uint32_t *track,
                                             bool (*keep_searching)(void *), void *context);
 

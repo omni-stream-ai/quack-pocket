@@ -98,6 +98,12 @@ int mp3_stream_read(mp3_stream_t *stream, const int16_t **mono, int *rate)
     return -1;
 }
 
+long mp3_stream_position(mp3_stream_t *stream)
+{
+    long end = ftell(stream->file);
+    return end < 0 ? end : end - (long)stream->available;
+}
+
 void mp3_stream_close(mp3_stream_t *stream)
 {
     free(stream);

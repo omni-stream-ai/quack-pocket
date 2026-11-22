@@ -1,5 +1,6 @@
 #include "websocket_protocol.h"
 #include "voice/voice_profile.h"
+#include "voice/control_policy.h"
 #include "board.h"
 #include "system_info.h"
 #include "application.h"
@@ -233,6 +234,7 @@ std::string WebsocketProtocol::GetHelloMessage() {
     cJSON_AddNumberToObject(root, "version", version_);
     auto profile = VoiceProfile::Load();
     if (profile.Custom()) {
+        cJSON_AddItemToObject(root,"voice_controls",voice_control::Load().release());
         profile.AddModelSettings(cJSON_AddObjectToObject(root, "model_settings"));
     }
     cJSON* features = cJSON_CreateObject();

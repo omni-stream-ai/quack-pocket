@@ -11,7 +11,7 @@ from aiohttp import ClientSession, WSMsgType, web
 from aiohttp.test_utils import TestClient, TestServer
 from gateway import opus
 from gateway.provider import Provider
-from gateway.server import make_app, model_settings, music_call
+from gateway.server import make_app, model_settings, music_call, provider_upstreams
 
 MAC = "10:51:db:39:8f:74"
 TOKEN = "test-device-secret-used-only-locally"
@@ -23,6 +23,15 @@ def pcm(rate, duration):
 
 
 class ModelSettings(unittest.TestCase):
+    def test_provider_credentials_follow_destination(self):
+        routes = provider_upstreams({"OMNI_PROVIDER_URL": "https://shared.test/v1",
+                                    "OMNI_PROVIDER_KEY": "shared-key",
+                                    "OMNI_ASR_URL": "http://127.0.0.1:9999/v1",
+                                    "OMNI_TTS_URL": "https://speech.test/v1", "OMNI_TTS_KEY": "tts-key"})
+        self.assertEqual(routes["llm"][1], {"Authorization": "Bearer shared-key"})
+        self.assertEqual(routes["asr"][1], {})
+        self.assertEqual(routes["tts"][1], {"Authorization": "Bearer tts-key"})
+
     def test_firmware_utf8_limits(self):
         settings = {"model": "语" * 32, "voice": "音" * 21 + "A"}
         hello = {"type": "hello", "version": 1, "audio_params": {
@@ -66,6 +75,7 @@ class VoiceRoundTrip(unittest.IsolatedAsyncioTestCase):
         app = web.Application()
 
         async def asr(req):
+            self.assertEqual(req.headers.get("Authorization"), "Bearer asr-key")
             form = await req.post()
             with wave.open(io.BytesIO(form["file"].file.read())) as audio:
                 self.assertEqual((audio.getframerate(), audio.getnchannels()), (16000, 1))
@@ -74,6 +84,7 @@ class VoiceRoundTrip(unittest.IsolatedAsyncioTestCase):
             return web.json_response({"text": "播放音乐/示例.mp3" if self.music else "试音"})
 
         async def model(req):
+            self.assertEqual(req.headers.get("Authorization"), "Bearer llm-key")
             data = await req.json()
             self.histories.append(data["messages"][1:-1])
             self.calls.append(data["model"])
@@ -83,22 +94,25 @@ class VoiceRoundTrip(unittest.IsolatedAsyncioTestCase):
             return web.json_response({"choices": [{"message": reply}]})
 
         async def speech(req):
+            self.assertEqual(req.headers.get("Authorization"), "Bearer tts-key")
             data = await req.json()
             self.calls.extend([data["model"], data["voice"]])
             if len(self.histories) == 1:
                 await self.release_first_speech.wait()
             return web.Response(body=pcm(24000, 0.12))
 
-        app.router.add_post("/v1/audio/transcriptions", asr)
-        app.router.add_post("/v1/chat/completions", model)
-        app.router.add_post("/v1/audio/speech", speech)
+        app.router.add_post("/asr/v1/audio/transcriptions", asr)
+        app.router.add_post("/llm/v1/chat/completions", model)
+        app.router.add_post("/tts/v1/audio/speech", speech)
         self.upstream = TestServer(app)
         await self.upstream.start_server()
 
         @asynccontextmanager
         async def provider():
             async with ClientSession() as client:
-                yield Provider(client, str(self.upstream.make_url("/v1")), {})
+                routes = {stage: (str(self.upstream.make_url(f"/{stage}/v1")),
+                                  {"Authorization": f"Bearer {stage}-key"}) for stage in ("llm","asr","tts")}
+                yield Provider(client, "", {}, upstreams=routes)
 
         self.client = TestClient(TestServer(make_app({MAC: TOKEN}, provider)))
         await self.client.start_server()

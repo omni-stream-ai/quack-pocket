@@ -3,6 +3,10 @@
 #endif
 #include "music_player.h"
 #include "offline_commands.h"
+#include "pocket_media.h"
+#include "pocket_memo.h"
+#include "custom_lcd_display.h"
+#include <esp_timer.h>
 #include <algorithm>
 
 #include <cstring>
@@ -23,10 +27,10 @@
 #include "music_sd.h"
 
 namespace {
-void Show(const std::string& message) {
+void Show(const std::string& message, int duration_ms = 3500) {
     auto* display = Board::GetInstance().GetDisplay();
     display->SetChatMessage("system", message.c_str());
-    display->ShowVoiceHint(message.c_str(), 3500);
+    display->ShowVoiceHint(message.c_str(), duration_ms);
 }
 
 uint32_t NextTrack(uint32_t current, uint32_t count, bool shuffle) {
@@ -55,6 +59,7 @@ bool MusicPlayer::Start(std::function<void()> power_off) {
         commands_ = nullptr;
         return false;
     }
+    active_.store(this);
     return true;
 }
 
@@ -88,7 +93,23 @@ void MusicPlayer::Run() {
     bool announce = true;
     bool exact_request = false;
     uint32_t failed_tracks = 0;
-    char path[MUSIC_PATH_CAPACITY];
+    char path[MUSIC_PATH_CAPACITY]{};
+    std::string story_folder;
+
+    uint32_t first = 0, end = 0;
+    bool story = false, chapter_stop = true;
+    long resume_offset = 0;
+    int64_t deadline = 0, last_save = 0;
+    auto save_position = [&](const char* name, long offset) {
+        pocket_media::Json mark(cJSON_CreateObject(), cJSON_Delete);
+        cJSON_AddStringToObject(mark.get(), "path", name);
+        cJSON_AddNumberToObject(mark.get(), "offset", std::max(0L, offset));
+        if (!pocket_media::Save("bookmark", mark.get())) Show("故事进度保存失败");
+        last_save = esp_timer_get_time();
+    };
+    auto checkpoint = [&]() {
+        if (story && decoder) save_position(path, mp3_stream_position(decoder.get()));
+    };
 
     bool prepare_on_boot = true;
 
@@ -110,13 +131,13 @@ void MusicPlayer::Run() {
     };
 
     auto skip_unreadable = [&]() {
-        if (exact_request || ++failed_tracks >= index.count) {
+        if (exact_request || ++failed_tracks >= end-first) {
             release();
             Show(exact_request ? std::string("无法播放指定曲目 ") + path : "曲库中没有可播放的 MP3");
             return;
         }
         // Walk forward after a failure so an all-invalid shuffle list terminates.
-        track = (track + 1) % index.count;
+        track = first + (track-first + 1) % (end-first);
         close_track();
         vTaskDelay(1);
     };
@@ -134,11 +155,25 @@ void MusicPlayer::Run() {
         busy_ = true;
         const bool background = received && command.action == MusicAction::Prepare;
         if (powering_off_.load()) {
+            checkpoint();
             release();
+            music_sd_shutdown();
             power_off_();
             vTaskSuspend(nullptr);
         }
         if (received) {
+            if (command.action == MusicAction::RecordMemo || command.action == MusicAction::HearMemo) {
+                checkpoint(); release(); story = false; deadline = 0;
+                auto interrupted = [this] { return powering_off_.load() || uxQueueMessagesWaiting(commands_); };
+                if (command.action == MusicAction::RecordMemo) {
+                    recording_ = true;
+                    Show("正在录留言，按 BOOT 保存", (pocket_media::Config().record_seconds + 1) * 1000);
+                    Show(RecordPocketMemo([&] { return !recording_ || interrupted(); }));
+                    recording_ = false;
+                } else Show(PlayPocketMemo(interrupted));
+                static_cast<CustomLcdDisplay*>(Board::GetInstance().GetDisplay())->RefreshHome();
+                continue;
+            }
             if (command.action == MusicAction::InstallModel) {
                 if (music_sd_mount() != ESP_OK) Show("无法挂载 SD 卡，请插入 FAT32 卡后重试");
                 else {
@@ -173,11 +208,13 @@ void MusicPlayer::Run() {
                 }
             }
             if (command.action == MusicAction::Stop) {
+                checkpoint(); story = false; deadline = 0;
                 release();
                 Show("音乐已停止");
                 continue;
             }
             if (command.action == MusicAction::Pause || (command.action == MusicAction::Toggle && playing)) {
+                checkpoint();
                 playing = false;
                 Show("音乐已暂停");
 #ifdef OMNI_MUSIC_HIL
@@ -186,13 +223,18 @@ void MusicPlayer::Run() {
                 continue;
             }
             if (command.action == MusicAction::Refresh) {
+                checkpoint(); story = false; deadline = 0;
                 release();
             }
             if (!index.file) {
                 esp_err_t mounted = music_sd_mount();
                 if (mounted != ESP_OK) {
                     ESP_LOGW("music_sd", "Mount failed: %s", esp_err_to_name(mounted));
-                    if (!background) Show("无法挂载存储卡，请检查 FAT32 格式");
+                    if (!background) {
+                        if (mounted == ESP_ERR_NO_MEM) Show("设备内存不足，无法打开 SD 卡");
+                        else if (mounted == ESP_ERR_TIMEOUT) Show("SD 卡未响应，请检查插卡");
+                        else Show(std::string("SD 卡挂载失败：") + esp_err_to_name(mounted));
+                    }
                     continue;
                 }
                 bool open = false;
@@ -237,45 +279,91 @@ void MusicPlayer::Run() {
                 Show("曲库已更新，共 " + std::to_string(index.count) + " 首");
                 continue;
             }
-            if (track >= index.count) {
-                track = 0;
+            pocket_media::Config config;
+            bool start_story = command.action == MusicAction::Story;
+            bool use_story = start_story || (story && command.action != MusicAction::PlayFile &&
+                command.action != MusicAction::Shuffle && command.action != MusicAction::Sequential);
+            uint32_t low, high;
+            if (!music_index_directory(&index, (use_story ? config.stories : config.music).c_str(), &low, &high)
+                || low == high) {
+                Show("所选目录没有已索引的 MP3，请核对路径并刷新曲库");
+                continue;
+            }
+            uint32_t requested_track = low;
+            if (command.action == MusicAction::PlayFile) {
+                if (!music_index_find(&index,command.path,&requested_track) || requested_track < low || requested_track >= high) {
+                    if (strchr(command.path,'/')) { Show("所选目录中未找到指定曲目"); continue; }
+                    auto result = music_index_find_title_in(&index,command.path,&requested_track,low,high,[](void* context) {
+                        auto* player = static_cast<MusicPlayer*>(context);
+                        vTaskDelay(1);
+                        return !player->powering_off_.load() && !uxQueueMessagesWaiting(player->commands_);
+                    },this);
+                    if (result != MUSIC_TITLE_FOUND) {
+                        if (result == MUSIC_TITLE_AMBIGUOUS) Show("匹配到多首，请指定文件夹和文件名");
+                        if (result == MUSIC_TITLE_MISSING) Show("未找到指定曲目");
+                        if (result == MUSIC_TITLE_INDEX_ERROR) Show("曲库索引读取失败");
+                        continue;
+                    }
+                }
+            }
+            if (start_story && command.path[0] && (!music_index_find(&index,command.path,&requested_track) ||
+                requested_track < low || requested_track >= high)) { Show("所选故事目录中未找到章节"); continue; }
+            if (use_story && !start_story && !story_folder.empty()) {
+                uint32_t book_first, book_end;
+                if (!music_index_directory(&index,story_folder.c_str(),&book_first,&book_end)) {
+                    Show("故事目录读取失败"); continue;
+                }
+                low = std::max(low,book_first);
+                high = std::min(high,book_end);
+                if (low >= high) { Show("故事目录已更改，请重新选择故事"); continue; }
+            }
+            if (start_story || story != use_story || track < low || track >= high) {
+                checkpoint(); close_track();
+            }
+            story = use_story; first = low; end = high;
+            if (track < first || track >= end) track = first;
+            if (!story) { deadline = 0; resume_offset = 0; }
+            if (start_story) {
+                track = first; resume_offset = 0; shuffle = false;
+                auto mark = pocket_media::Load("bookmark");
+                auto wanted = command.path[0] ? std::string(command.path) : pocket_media::Text(mark.get(), "path");
+                uint32_t saved;
+                if (music_index_find(&index,wanted.c_str(),&saved) && saved >= first && saved < end) {
+                    track = saved;
+                    if (wanted == pocket_media::Text(mark.get(),"path"))
+                        resume_offset = pocket_media::Number(mark.get(),"offset",0);
+                } else if (command.path[0]) { playing = false; Show("未找到指定章节"); continue; }
+                char chapter[MUSIC_PATH_CAPACITY];
+                if (!music_index_get(&index,track,chapter)) { release(); Show("章节索引读取失败"); continue; }
+                std::string chapter_path(chapter);
+                auto slash = chapter_path.rfind('/');
+                story_folder = slash == std::string::npos ? "" : chapter_path.substr(0,slash);
+                if (!music_index_directory(&index,story_folder.c_str(),&first,&end) || first >= end) {
+                    release(); Show("书目索引读取失败"); continue;
+                }
+                deadline = config.minutes ? esp_timer_get_time() + config.minutes * 60000000LL : 0;
+                chapter_stop = config.chapter_stop;
             }
             exact_request = command.action == MusicAction::PlayFile;
             failed_tracks = 0;
             switch (command.action) {
                 case MusicAction::PlayFile:
-                    if (!music_index_find(&index, command.path, &track)) {
-                        if (strchr(command.path, '/')) {
-                            Show("未找到指定曲目");
-                            continue;
-                        }
-                        auto result = music_index_find_title(&index, command.path, &track, [](void* context) {
-                            auto* player = static_cast<MusicPlayer*>(context);
-                            vTaskDelay(1);
-                            return !player->powering_off_.load() && !uxQueueMessagesWaiting(player->commands_);
-                        }, this);
-                        if (result != MUSIC_TITLE_FOUND) {
-                            if (result == MUSIC_TITLE_AMBIGUOUS) Show("匹配到多首，请指定文件夹和文件名");
-                            if (result == MUSIC_TITLE_MISSING) Show("未找到指定曲目");
-                            if (result == MUSIC_TITLE_INDEX_ERROR) Show("曲库索引读取失败");
-                            continue;
-                        }
-                    }
+                    track = requested_track;
                     close_track();
                     break;
                 case MusicAction::Previous:
-                    track = track ? track - 1 : index.count - 1;
+                    track = track > first ? track - 1 : end - 1;
                     close_track();
                     break;
                 case MusicAction::Next:
-                    track = NextTrack(track, index.count, shuffle);
+                    track = first + NextTrack(track-first, end-first, shuffle);
                     close_track();
                     break;
-                case MusicAction::ChangeMode: shuffle = !shuffle; break;
+                case MusicAction::ChangeMode: if (!story) shuffle = !shuffle; break;
                 case MusicAction::Shuffle:
                     shuffle = true;
-                    if (!decoder && index.count > 1) {
-                        track = esp_random() % index.count;
+                    if (!decoder && end-first > 1) {
+                        track = first + esp_random() % (end-first);
                     }
                     break;
                 case MusicAction::Sequential: shuffle = false; break;
@@ -283,6 +371,9 @@ void MusicPlayer::Run() {
             }
             playing = true;
             announce = true;
+        }
+        if (story && deadline && esp_timer_get_time() >= deadline) {
+            checkpoint(); playing = false; deadline = 0; Show("故事定时已结束"); continue;
         }
         auto& app = Application::GetInstance();
         auto state = app.GetDeviceState();
@@ -302,6 +393,14 @@ void MusicPlayer::Run() {
             file.reset(fopen((std::string(MUSIC_SD_ROOT "/") + path).c_str(), "rb"));
             if (!file) ESP_LOGW("music_sd", "Track open failed, errno=%d", errno);
             decoder.reset(file ? mp3_stream_open(file.get()) : nullptr);
+            if (decoder && resume_offset > 0) {
+                long start = ftell(file.get());
+                if (fseek(file.get(),0,SEEK_END) == 0) {
+                    long size = ftell(file.get());
+                    fseek(file.get(), resume_offset < size ? resume_offset : start, SEEK_SET);
+                }
+            }
+            resume_offset = 0;
             if (!decoder) {
                 ESP_LOGW("music_sd", "Decoder initialization failed, errno=%d", errno);
                 skip_unreadable();
@@ -309,7 +408,7 @@ void MusicPlayer::Run() {
             }
         }
         if (announce) {
-            Show(std::string(shuffle ? "随机播放\n" : "顺序播放\n") + path);
+            Show(std::string(story ? "睡前故事\n" : shuffle ? "随机播放\n" : "顺序播放\n") + path);
             announce = false;
         }
         if (pending.empty()) {
@@ -323,8 +422,14 @@ void MusicPlayer::Run() {
             }
             if (!samples) {
                 exact_request = false;
-                track = NextTrack(track, index.count, shuffle);
+                bool last = track + 1 == end;
+                track = first + NextTrack(track-first, end-first, shuffle);
                 close_track();
+                if (story) {
+                    char next[MUSIC_PATH_CAPACITY];
+                    if (music_index_get(&index,track,next)) save_position(next,0);
+                    if (last || chapter_stop) { playing = false; Show("本章已播完"); }
+                }
                 continue;
             }
             failed_tracks = 0;
@@ -338,6 +443,7 @@ void MusicPlayer::Run() {
                 resampler.Process(mono, samples, pending);
             }
         }
+        if (story && esp_timer_get_time()-last_save >= 60000000LL) checkpoint();
         if (!app.GetAudioService().PushMusicPcm(pending)) {
             vTaskDelay(1);
         }

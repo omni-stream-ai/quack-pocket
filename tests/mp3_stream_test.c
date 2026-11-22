@@ -46,13 +46,24 @@ static void test(int hz, int channels) {
     assert(s);
     int count, rate, total = 0, peak = 0;
     const int16_t *mono;
+    long bookmark = 0;
+    int remaining = 0;
     while ((count = mp3_stream_read(s, &mono, &rate)) > 0) {
         assert(rate == hz);
         total += count;
+        if (bookmark) remaining += count;
+        else if (total >= 24000) bookmark = mp3_stream_position(s);
         for (int i=0; i<count; ++i) if (abs(mono[i])>peak) peak = abs(mono[i]);
     }
     assert(count == 0 && total >= 102400 && total < 106000 && peak > 5000 && peak < 16000);
     printf("passed %d Hz, %d channel(s), %d decoded samples, peak %d\n",hz,channels,total,peak);
+    mp3_stream_close(s);
+    rewind(file);
+    s = mp3_stream_open(file);
+    assert(s && bookmark > 16384 && fseek(file,bookmark,SEEK_SET) == 0);
+    int resumed = 0;
+    while ((count = mp3_stream_read(s,&mono,&rate)) > 0) resumed += count;
+    assert(count == 0 && resumed <= remaining && remaining - resumed < 4608);
     mp3_stream_close(s);
     fclose(file);
 }

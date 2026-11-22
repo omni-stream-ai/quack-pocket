@@ -45,8 +45,10 @@ public:
     virtual Display* GetDisplay();
     virtual Camera* GetCamera();
     virtual NetworkInterface* GetNetwork() = 0;
+    virtual void HandleVoiceTranscript(const std::string&) {}
     virtual void CheckVoiceStandby() {}
     virtual bool WakeFromVoiceStandby() { return false; }
+    virtual void StartOfflineVoiceCommand() {}
     virtual bool FirmwareUpdateActive() const { return false; }
     virtual bool AcceptUserAction() { return true; }
     virtual bool CanStartVoiceShortcut() { return true; }

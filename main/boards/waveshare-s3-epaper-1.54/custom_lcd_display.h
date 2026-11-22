@@ -41,18 +41,18 @@ public:
     void ShowUpdatePage(const std::string& text);
     void ShowGuide(int page);
     bool ShowVoiceStandby(bool visible);
-    void ShowMenu(const std::string& header, const char* icon, const char* title, const std::string& detail);
+    void ShowMenu(const std::string& header, const char* icon, const char* title, const std::string& detail, const char* navigation = "PWR 短按下一项 · 双击上一项");
     void RefreshHome();
     void ShowDisconnectedHome(bool reconnecting);
     void CloseMenu();
     lv_obj_t* home_page_ = nullptr;
     void ShowHome(bool visible) override;
     void ShowNetworkPage(const char* text);
+    void ShowBluetoothPrompt(const std::string& message);
     void ShowSetupCode(const char* ssid, const char* password, unsigned pairing_code, const std::string& lan_url, const std::string& fingerprint, const std::string& address);
     void SetChatMessage(const char* role, const char* content) override;
     void EPD_Init();    /* 墨水屏初始化 */
     void EPD_Clear();   /* 清空屏幕 */
-    void EPD_Display(); /* 刷buffer到墨水屏 */
     
     /*局部刷新*/
     void EPD_DisplayPartBaseImage();
@@ -79,6 +79,7 @@ private:
     lv_obj_t* CreatePageLabel();
     lv_obj_t* network_page_ = nullptr;
     lv_obj_t* menu_label_ = nullptr;
+    lv_obj_t* bluetooth_prompt_ = nullptr;
     lv_obj_t* setup_overlay_ = nullptr;
     const custom_lcd_spi_t lcd_spi_data;
     const int Width;
@@ -103,7 +104,6 @@ private:
     void SPI_SendByte(uint8_t data);
     void EPD_SendData(uint8_t data);
     void EPD_SendCommand(uint8_t command);
-    void writeBytes(uint8_t *buffer,int len);
     void writeBytes(const uint8_t *buffer, int len);
     void EPD_SetWindows(uint16_t Xstart, uint16_t Ystart, uint16_t Xend, uint16_t Yend);
     void EPD_SetCursor(uint16_t Xstart, uint16_t Ystart);

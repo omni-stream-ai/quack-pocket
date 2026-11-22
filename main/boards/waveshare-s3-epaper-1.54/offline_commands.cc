@@ -212,7 +212,7 @@ void InstallOfflineModel(const std::function<bool()>& cancelled) {
         if (cancelled()) return;
         if (error) { Message(error); return; }
     }
-    Message("模型已就绪，菜单选“说一句音乐口令”");
+    Message("模型已就绪，菜单选“语音互动 → 说一句音乐口令”");
 }
 
 std::string ReadOfflineWords() {
@@ -254,7 +254,7 @@ OfflineCommand ListenOffline(const std::function<bool()>& cancelled) {
     }
     Message("正在读取 SD 卡语音模型");
     if (!CheckModel(cancelled)) {
-        if (!cancelled()) Message("请从主菜单选择「安装离线模型」");
+        if (!cancelled()) Message("请从主菜单选择「语音互动 → 安装离线模型」");
         return {};
     }
     const auto configured = ReadOfflineWords();

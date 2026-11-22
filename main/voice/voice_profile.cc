@@ -17,6 +17,8 @@ std::string string_value(cJSON* object, const char* key) {
 }
 
 bool VoiceProfile::Valid() const {
+    if (protocol != "chat_completions" && protocol != "responses" &&
+        protocol != "anthropic" && protocol != "qwen_realtime") return false;
     if (url.empty()) return token.empty() && model.empty() && asr.empty() && tts.empty() && voice.empty();
     if (url.rfind("wss://", 0) != 0) return false;
     auto host_end = url.find_first_of("/?#", 6);
@@ -28,7 +30,8 @@ bool VoiceProfile::Valid() const {
 }
 
 bool VoiceProfile::AddModelSettings(cJSON* object) const {
-    return cJSON_AddStringToObject(object, "model", model.c_str()) &&
+    return cJSON_AddStringToObject(object, "protocol", protocol.c_str()) &&
+        cJSON_AddStringToObject(object, "model", model.c_str()) &&
         cJSON_AddStringToObject(object, "asr", asr.c_str()) &&
         cJSON_AddStringToObject(object, "tts", tts.c_str()) &&
         cJSON_AddStringToObject(object, "voice", voice.c_str());
@@ -80,7 +83,8 @@ esp_err_t ReadProfile(Json& json) {
 
 VoiceProfile Decode(cJSON* json) {
     return {string_value(json,"url"), string_value(json,"token"), string_value(json,"model"),
-            string_value(json,"asr"), string_value(json,"tts"), string_value(json,"voice")};
+            string_value(json,"asr"), string_value(json,"tts"), string_value(json,"voice"),
+            cJSON_HasObjectItem(json,"protocol") ? string_value(json,"protocol") : "chat_completions"};
 }
 }
 
