@@ -27,9 +27,9 @@ button{background:var(--accent);border:0;border-radius:.6rem;cursor:pointer;marg
 #install{width:auto;background:#fff;color:var(--accent);border:1px solid var(--line)}
 </style></head><body>
 <header><div class="brand"><img id="brandIcon" width="80" height="80" alt=""><div><h1>嘎嘎口袋</h1><p>设备设置 · 网络、语音与墨水屏</p></div></div><p id="connection" role="status">准备连接设备…</p><button id="install" hidden>安装嘎嘎口袋</button></header>
-<section class="guide" id="guide" hidden><h2>在此页通过蓝牙设置</h2><p>在墨水屏主菜单打开「手机配网与模型」，然后点击下方按钮，选择与屏幕同名的 Omni 设备。连接后即可在当前页面管理所有设置。</p>
-<p>系统提示配对时，输入墨水屏上「蓝牙配对」旁的<strong>六位数字</strong>。</p><button id="connect">通过蓝牙连接设备</button><p id="feedback" role="status"></p>
-<details><summary>其他方式：通过 Wi-Fi 热点设置</summary>扫描墨水屏上的 Wi-Fi 二维码，加入热点后<a href="http://192.168.4.1/">打开设备设置页（192.168.4.1）</a>。设备页面提供相同的管理功能。</details></section>
+<section class="guide" id="guide" hidden><h2>连接附近的设备</h2><p>在墨水屏主菜单打开「手机配网与模型」，然后选择与屏幕同名的 Omni 设备。</p>
+<p>系统提示配对时，输入墨水屏上「蓝牙配对」旁的<strong>六位数字</strong>。</p><button id="connect">选择蓝牙设备</button><p id="feedback" role="status"></p>
+<details><summary>用设备热点打开设置</summary>扫描墨水屏上的 Wi-Fi 二维码，加入热点后打开 <a href="http://192.168.4.1/">192.168.4.1</a>。</details></section>
 <form id="settings" hidden><nav aria-label="设置项目"><a href="#wifi">无线网络</a><a href="#service">语音服务</a><a href="#words">离线口令</a><a href="#screen">屏保</a></nav>
 <fieldset id="wifi"><legend>无线网络</legend>
 <details id="picker" open><summary>附近的 2.4 GHz Wi-Fi</summary><div id="networks"></div></details>
