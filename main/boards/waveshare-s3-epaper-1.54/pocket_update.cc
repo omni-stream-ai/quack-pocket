@@ -112,6 +112,9 @@ std::string Check(Release& release) {
         return "清单与本机不匹配";
     auto message = std::string(board) + "\n" + version + "\n" + std::to_string(size->valueint) + "\n" + sha + "\n";
     if (!Verify(message, field("signature"))) return "发布签名无效";
+    // Early releases inherited the upstream numbering. A cached legacy feed
+    // must not roll a 0.x device back to one of those builds.
+    if (current[0] == 0 && (version == "2.0.5" || version == "2.0.6")) return {};
     if (next > current) {
         candidate.version = version;
         candidate.bytes = size->valueint;

@@ -6,6 +6,8 @@
 ./scripts/release_v2.py
 ```
 
+嘎嘎口袋使用独立版本号，从 `0.0.6` 起编号。板卡的 V2 表示硬件修订。
+
 有新的固件改动要交付给已安装旧版的设备时，先把根目录 `CMakeLists.txt` 的 `PROJECT_VER` 提升为新的三段数字版本。设备只安装比当前版本新的签名镜像。
 
 该命令编译 V2、打 USB 包、签名 OTA 并生成设置网站部署包。它先将镜像放入 `web/ota/`，再更新同目录的 `manifest.json`。若通过 Git 部署 `web/`，将清单和它引用的 `.bin` 一起交付。部署整站时使用 `releases/quack-pocket-site.zip`。默认清单地址是 `https://gaga.omnistreamai.com/ota/manifest.json`。
