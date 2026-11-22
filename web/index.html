@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>嘎嘎口袋 · 设备设置</title>
+<meta name="description" content="连接身边的嘎嘎口袋，管理无线网络、语音服务、离线口令和墨水屏屏保。">
+<meta name="theme-color" content="#146651">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNTYiIGhlaWdodD0iMjU2IiB2aWV3Qm94PSIwIDAgMjU2IDI1NiIgcm9sZT0iaW1nIiBhcmlhLWxhYmVsbGVkYnk9InRpdGxlIGRlc2MiPgogIDx0aXRsZSBpZD0idGl0bGUiPuWYjuWYjuWPo+iiiyDCtyBRdWFjayBQb2NrZXQ8L3RpdGxlPgogIDxkZXNjIGlkPSJkZXNjIj7kuIDlj6rnv5jnnYDlsI/nu5Lmr5vnmoTpu4TpuK3ku47ok53oibLluIPlj6Pooovph4zmjqLlh7rlpLTvvIzlj6PooovmraPpnaLnvJ3nnYDkuIDmnprlpbbnmb3oibLmmJ/mmJ/jgII8L2Rlc2M+CiAgPGcgc3Ryb2tlPSIjMzAyZTM5IiBzdHJva2UtbGluZWpvaW49InJvdW5kIiBzdHJva2UtbGluZWNhcD0icm91bmQiPgogICAgPCEtLSBTaWxob3VldHRlIG9mIHRoZSBkdWNrLCBpbmNsdWRpbmcgaXRzIHR3byBsaXR0bGUgY3Jvd24gZmVhdGhlcnMuIC0tPgogICAgPHBhdGggZmlsbD0iI2ZmZDM1YyIgc3Ryb2tlLXdpZHRoPSI4IiBkPSJNNTggMTU3YzAtMTkgOS0zNCAyMy00Ni0xLTIzIDEwLTQ0IDI5LTU3LTgtMy0xMi05LTExLTE3IDExLTEgMjAgMyAyNiAxMC0yLTEwIDEtMTggOC0yNCA5IDUgMTMgMTMgMTIgMjMgMjktMiA1MiAyMCA1NCA1MCAzIDI0LTkgNDctMzIgNjBsLTI1IDIyeiIvPgogICAgPHBhdGggZmlsbD0iI2ZmOWE1NiIgc3Ryb2tlLXdpZHRoPSI3IiBkPSJNMTcxIDEwMGM4LTUgMTYtNiAyNS00IDcgMiAxMyAxIDE5LTEgNSA5LTIgMTktMTMgMjMtMTEgNC0yMiAxLTMwLTUtNS00LTUtMTAtMS0xM3oiLz4KICAgIDxlbGxpcHNlIGN4PSIxNTkiIGN5PSI4NSIgcng9IjYiIHJ5PSI4IiBmaWxsPSIjMzAyZTM5IiBzdHJva2U9Im5vbmUiLz4KICAgIDxlbGxpcHNlIGN4PSIxNDMiIGN5PSIxMDMiIHJ4PSIxMCIgcnk9IjUiIGZpbGw9IiNmMzljNzMiIHN0cm9rZT0ibm9uZSIvPgogICAgPCEtLSBBIGZvbGRlZCBwb2NrZXQgbGlwIGFuZCBhIHNpbmdsZSBzdGl0Y2hlZCBzdGFyLiAtLT4KICAgIDxwYXRoIGZpbGw9IiM4MmM2YzciIHN0cm9rZS13aWR0aD0iOCIgZD0iTTM5IDEzM3E4NSAyMiAxNjUtNGwtNCA0OGMtMiAyNC0yNSA0MC02NiA1Ni02IDItMTIgMi0xOCAwLTQxLTE0LTY1LTMwLTY5LTUzeiIvPgogICAgPHBhdGggZmlsbD0iI2I0ZTJkYSIgc3Ryb2tlLXdpZHRoPSI3IiBkPSJNMzcgMTMwcTg0IDIxIDE2OS01bC0xIDE3cS04MiAyNy0xNjUgNXoiLz4KICAgIDxwYXRoIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzM3NTc1YiIgc3Ryb2tlLXdpZHRoPSIzLjUiIHN0cm9rZS1kYXNoYXJyYXk9IjQgOCIgZD0iTTU4IDE2MWwzIDE2YzMgMTYgMjIgMzAgNTIgNDFtMjgtMWMyOC0xMiA0Ni0yNSA0Ny00MmwxLTE1Ii8+CiAgICA8cGF0aCBmaWxsPSIjZmZmNGQ0IiBzdHJva2Utd2lkdGg9IjQiIGQ9Im0xMjUgMTYyIDYgMTEgMTMgMi05IDEwIDIgMTMtMTItNi0xMiA2IDItMTMtOS05IDEzLTN6Ii8+CiAgPC9nPgo8L3N2Zz4K">
+<style>
+*{box-sizing:border-box}body{margin:0 auto;max-width:34rem;padding:1.5rem;background:#f6f4ef;color:#242720;font:16px/1.5 system-ui,sans-serif}h1{margin:0 0 1rem;font-size:1.65rem}fieldset{border:1px solid #bbbfb4;border-radius:.5rem;background:#fff;margin:0 0 1rem;padding:1rem}legend{font-weight:650}label{display:block;margin:.6rem 0}input,select,button{display:block;width:100%;padding:.65rem;font:inherit;border:1px solid #999e93;border-radius:.35rem}button{background:#294b41;color:white;font-weight:600}small{color:#4f564f}summary{padding:.6rem 0;cursor:pointer}#networks button{margin:.3rem 0;text-align:left;background:white;color:#242720}#preview{display:block;max-width:100%;margin:.6rem auto;border:1px solid #888}#preview[hidden],[hidden]{display:none}
+
+:root{--ink:#192e2a;--accent:#146651;--line:#cfdcd4}
+body{max-width:56rem;padding:clamp(1rem,4vw,3rem);background:#f1f5ef;color:var(--ink);font-family:"Source Sans 3",system-ui,sans-serif}
+header{border-bottom:1px solid var(--line);padding-bottom:1.5rem;margin-bottom:1.5rem}
+header strong{letter-spacing:.18em;font-size:.85rem;color:var(--accent)}
+h1{font-size:clamp(2rem,6vw,3.4rem);letter-spacing:-.055em;margin:.7rem 0 .25rem}
+header p,.guide p{margin:.4rem 0}.guide{padding:1.25rem;background:#daeade;border-radius:1rem;margin-bottom:1.5rem}
+.guide button{margin-top:.9rem;width:auto;min-width:10rem}
+nav{display:flex;gap:.6rem;flex-wrap:wrap;margin:0 0 1.2rem}nav a{color:var(--accent);font-weight:600;padding:.4rem .7rem;background:#fff;border-radius:2rem;text-decoration:none}
+fieldset{min-width:0;border:1px solid var(--line);border-radius:1rem;padding:1.1rem clamp(1rem,4vw,2rem) 1.5rem;margin-bottom:1.5rem;box-shadow:0 4px 16px #18392908}
+legend{background:#f1f5ef;border-radius:.5rem;padding:0 .55rem;font-size:1.15rem}
+input,select,textarea{background:#fbfcfa;border:1px solid #9fb3a8;border-radius:.55rem;margin-top:.32rem;width:100%;font:inherit;padding:.65rem;color:var(--ink)}textarea{resize:vertical}
+button{background:var(--accent);border:0;border-radius:.6rem;cursor:pointer;margin:.45rem 0}button:disabled{opacity:.5;cursor:default}button:focus-visible,a:focus-visible,input:focus-visible{outline:3px solid #da9229;outline-offset:2px}
+#leave,#clearImage,#scan,#retry,#savedWifi button{background:#e6eee8;color:var(--ink)}
+#networks{display:grid;grid-template-columns:repeat(auto-fit,minmax(9rem,1fr));gap:.4rem}#networks button{border:1px solid var(--line);overflow-wrap:anywhere}
+#savedWifi>div{display:flex;align-items:center;justify-content:space-between;gap:1rem;overflow-wrap:anywhere}#savedWifi button{width:auto}small[role=status]{display:block;color:var(--accent)}
+#phrases{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 .8rem}
+.brand{display:flex;align-items:center;gap:1rem}.brand img{width:clamp(4rem,12vw,6rem);height:auto}.brand h1{margin:0}.brand p{color:#45615a}
+#install{width:auto;background:#fff;color:var(--accent);border:1px solid var(--line)}
+</style></head><body>
+<header><div class="brand"><img id="brandIcon" width="80" height="80" alt=""><div><h1>嘎嘎口袋</h1><p>设备设置 · 网络、语音与墨水屏</p></div></div><p id="connection" role="status">准备连接设备…</p><button id="install" hidden>安装嘎嘎口袋</button></header>
+<section class="guide" id="guide" hidden><h2>连接附近的设备</h2><p>在墨水屏主菜单打开「手机配网与模型」，然后选择与屏幕同名的 Omni 设备。</p>
+<p>系统提示配对时，输入墨水屏上「蓝牙配对」旁的<strong>六位数字</strong>。</p><button id="connect">选择蓝牙设备</button><p id="feedback" role="status"></p>
+<details><summary>用设备热点打开设置</summary>扫描墨水屏上的 Wi-Fi 二维码，加入热点后打开 <a href="http://192.168.4.1/">192.168.4.1</a>。</details></section>
+<form id="settings" hidden><nav aria-label="设置项目"><a href="#wifi">无线网络</a><a href="#service">语音服务</a><a href="#words">离线口令</a><a href="#screen">屏保</a></nav>
+<fieldset id="wifi"><legend>无线网络</legend>
+<details id="picker" open><summary>附近的 2.4 GHz Wi-Fi</summary><div id="networks"></div></details>
+<button type="button" id="scan">刷新网络列表</button><small id="scanStatus" role="status"></small>
+<label>Wi-Fi 名称<input id="ssid" maxlength="32" autocomplete="off"></label>
+<label>Wi-Fi 密码<input id="password" type="password" maxlength="63" autocomplete="new-password"></label>
+<small id="wifiHint"></small>
+<button id="addWifi" type="button">保存这个网络，继续添加</button>
+<details><summary id="savedCount">已保存的网络</summary><div id="savedWifi"></div></details>
+<small id="wifiStatus" role="status"></small>
+</fieldset>
+<fieldset id="service"><legend>语音服务</legend>
+<label>连接方式<select id="mode"><option value="default">小智服务</option><option value="custom">自建语音网关</option></select></label>
+<p id="xiaozhiHelp">保存并联网后，若设备显示激活码，请在手机恢复上网后登录<a href="https://xiaozhi.me/console/" target="_blank" rel="noopener noreferrer">小智官方控制台</a>，按提示绑定设备并配置智能体。网址为 xiaozhi.me/console/。</p>
+<div id="custom" hidden>
+<label>网关地址<input id="url" placeholder="wss://voice.example.com/device" maxlength="384" autocomplete="off"></label>
+<label>设备令牌<input id="token" type="password" maxlength="512" autocomplete="new-password"></label>
+<label>对话模型<input id="model" maxlength="96"></label>
+<label>语音识别模型<input id="asr" maxlength="96" placeholder="使用网关默认值"></label>
+<label>语音合成模型<input id="tts" maxlength="96" placeholder="使用网关默认值"></label>
+<label>音色<input id="voice" maxlength="64" placeholder="使用网关默认值"></label>
+</div></fieldset>
+<fieldset id="words"><legend>离线语音口令</legend>
+<small>离线首页单击 BOOT 后说话。口令可以直接填中文。多音字可改填无声调拼音，音节用空格分开。</small>
+<div id="phrases"></div>
+<label>点播歌曲（每行一个歌名）<textarea id="songs" rows="4" placeholder="晴天"></textarea></label>
+<small>添加“晴天”后，说“播放晴天”即可点歌。要指定读音，可填“晴天|qing tian”。</small>
+<button type="button" id="saveWords" disabled>保存离线口令</button><small id="wordsStatus" role="status"></small>
+</fieldset>
+<fieldset id="screen"><legend>墨水屏屏保</legend>
+<label>选择图片<input type="file" id="photo" accept="image/*"></label>
+<canvas id="preview" width="200" height="200" hidden aria-label="黑白屏保预览"></canvas>
+<small>首页或语音待机空闲 1 分钟后显示。单击任一侧键唤回。</small>
+<button type="button" id="applyImage" disabled>保存屏保</button><button type="button" id="clearImage">关闭屏保</button>
+<small id="imageStatus" role="status"></small></fieldset>
+<p>网络和语音服务随「保存并重启」生效。单独保存的网络、离线口令和屏保会保留。</p>
+<button id="save" type="submit" disabled>保存并重启</button><button id="retry" type="button" hidden>重新读取设置</button><button id="leave" type="button">退出设置，返回首页</button><p id="status" role="status"></p></form>
+<script>
+const el=id=>document.getElementById(id);
+const controls=['播放','暂停','下一首','上一首','加音量','降音量'].map(name=>{
+ const label=document.createElement('label'), input=document.createElement('input');
+ label.textContent=name;label.append(input);el('phrases').append(label);return input;
+});
+el('saveWords').onclick=async()=>{
+ const button=el('saveWords');button.disabled=true;
+ try{
+  const songs=el('songs').value.split('\n').map(s=>s.trim()).filter(Boolean);
+  const words=[...controls.map(c=>c.value.trim()),...songs].join('\n');
+  const r=await deviceRequest('/profile',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'offline_words',words})});
+  el('wordsStatus').textContent=await r.text();
+ }catch{el('wordsStatus').textContent='保存失败，请重试'}
+ finally{button.disabled=false}
+};
+let savedUrl='', hasToken=false;
+function updateTokenHint(){
+ el('token').placeholder=hasToken && el('url').value===savedUrl?'留空沿用当前网关的令牌':'输入设备令牌';
+}
+el('url').oninput=updateTokenHint;
+
+async function scanNetworks(){
+ const button=el('scan'), list=el('networks'), status=el('scanStatus');
+ button.disabled=true;el('picker').open=true;status.textContent='正在扫描附近网络…';
+ try{
+  const response=await deviceRequest('/networks',{cache:'no-store'});
+  if(!response.ok)throw Error();
+  const names=await response.json();
+  list.replaceChildren();
+  for(const name of names){
+   const choice=document.createElement('button');
+   choice.type='button';choice.textContent=name;
+   choice.onclick=()=>{
+    el('ssid').value=name;
+    el('picker').open=false;
+    status.textContent='已选择 '+name;
+    el('password').focus();
+   };
+   list.appendChild(choice);
+  }
+  status.textContent=names.length?'请选择网络，再填写密码。':'未发现网络，请检查 2.4 GHz 信号或手动输入。';
+ }catch{status.textContent='扫描失败，可刷新列表或手动输入。'}
+ finally{button.disabled=false}
+}
+el('scan').onclick=scanNetworks;
+function modeChanged(){const custom=el('mode').value==='custom';el('custom').hidden=!custom;el('xiaozhiHelp').hidden=custom}
+el('mode').onchange=modeChanged;
+function showSaved(names){
+ el('savedCount').textContent='已保存的网络（'+names.length+'/10）';
+ el('savedWifi').replaceChildren();
+ for(const name of names){
+  const row=document.createElement('div'),forget=document.createElement('button');
+  row.append(document.createTextNode(name));
+  forget.type='button';forget.textContent='移除';
+  forget.onclick=()=>{if(confirm('移除网络 '+name+'？'))changeWifi('forget_wifi',name,'')};
+  row.append(forget);el('savedWifi').append(row);
+ }
+}
+async function changeWifi(action,ssid,password){
+ if(!ssid){el('wifiStatus').textContent='请选择或填写网络名称';return}
+ el('addWifi').disabled=true;
+ try{
+  const r=await deviceRequest('/profile',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,ssid,password})});
+  const msg=await r.text();if(!r.ok)throw Error(msg);
+  if(action==='add_wifi'||ssid===el('ssid').value){el('ssid').value='';el('password').value=''}
+  const profile=await deviceRequest('/profile',{cache:'no-store'});
+  if(!profile.ok)throw Error('请刷新页面核对已保存网络');
+  const data=await profile.json();showSaved(data.saved_wifi||[]);
+  el('wifiHint').textContent=data.has_wifi?'留空可使用已保存网络。':'请输入 2.4 GHz Wi-Fi。';
+  el('wifiStatus').textContent=msg;
+ }catch(e){el('wifiStatus').textContent=e.message}
+ finally{el('addWifi').disabled=false}
+}
+el('addWifi').onclick=()=>changeWifi('add_wifi',el('ssid').value,el('password').value);
+async function load(){
+ el('retry').hidden=true;el('status').textContent='';
+ try{
+  const response=await deviceRequest('/profile',{cache:'no-store'});
+  if(!response.ok)throw Error('无法读取设置');
+  const data=await response.json();
+  const lines=data.offline_words.split('\n');
+  controls.forEach((input,i)=>input.value=lines[i]);
+  el('songs').value=lines.slice(6).join('\n');el('saveWords').disabled=false;
+  showSaved(data.saved_wifi||[]);
+  for(const key of ['url','model','asr','tts','voice'])el(key).value=data[key]||'';
+  el('mode').value=data.url?'custom':'default';
+  savedUrl=data.url||'';hasToken=Boolean(data.has_token);updateTokenHint();
+  el('wifiHint').textContent=data.has_wifi?'Wi-Fi 名称留空可保留已保存的网络。':'请输入设备将连接的 2.4 GHz Wi-Fi。';
+  modeChanged();el('save').disabled=false;
+ }catch(e){el('status').textContent=e.message;el('retry').hidden=false}
+}
+let imageBits=null;
+function paintBits(bits){
+ const canvas=el('preview'),ctx=canvas.getContext('2d'),frame=ctx.createImageData(200,200);
+ for(let i=0;i<40000;i++){
+  const value=bits[i>>3]&(128>>(i%8))?0:255;
+  frame.data.fill(value,4*i,4*i+3);frame.data[4*i+3]=255;
+ }
+ ctx.putImageData(frame,0,0);canvas.hidden=false;
+}
+async function loadImage(){
+ const file=el('photo');file.disabled=true;
+ try{
+  const r=await deviceRequest('/saver',{cache:'no-store'});
+  if(r.status===204)return;
+  if(!r.ok)throw Error();
+  const bits=new Uint8Array(await r.arrayBuffer());
+  if(bits.length!==5000)throw Error();
+  paintBits(bits);
+ }catch{el('imageStatus').textContent='无法读取当前屏保。'}
+ finally{file.disabled=false}
+}
+el('photo').onchange=async()=>{
+ const file=el('photo').files[0];if(!file)return;
+ el('applyImage').disabled=true;imageBits=null;
+ const url=URL.createObjectURL(file);
+ try{
+  const img=new Image();img.src=url;await img.decode();
+  const canvas=el('preview'),ctx=canvas.getContext('2d');
+  ctx.fillStyle='white';ctx.fillRect(0,0,200,200);
+  const scale=Math.min(200/img.width,200/img.height);
+  ctx.drawImage(img,(200-img.width*scale)/2,(200-img.height*scale)/2,img.width*scale,img.height*scale);
+  const rgba=ctx.getImageData(0,0,200,200).data,bits=new Uint8Array(5000);
+  const bayer=[0,8,2,10,12,4,14,6,3,11,1,9,15,7,13,5];
+  for(let i=0;i<40000;i++){
+   const grey=(rgba[i*4]*299+rgba[i*4+1]*587+rgba[i*4+2]*114)/1000;
+   if(grey<bayer[(Math.floor(i/200)%4)*4+i%4]*16+8)bits[i>>3]|=128>>(i%8);
+  }
+  imageBits=bits;paintBits(bits);el('applyImage').disabled=false;
+  el('imageStatus').textContent='预览已生成，点击保存屏保生效。';
+ }catch{el('imageStatus').textContent='图片无法读取，请选择其他图片。'}
+ finally{URL.revokeObjectURL(url)}
+};
+async function saveImage(clear){
+ const apply=el('applyImage'),remove=el('clearImage');
+ apply.disabled=remove.disabled=el('photo').disabled=true;
+ try{
+  const r=await deviceRequest('/saver',{method:'POST',headers:{'Content-Type':'application/octet-stream'},body:clear?new Uint8Array():imageBits});
+  const msg=await r.text();if(!r.ok)throw Error(msg);
+  if(clear){el('preview').hidden=true;el('photo').value=''}
+  imageBits=null;el('imageStatus').textContent=msg;
+ }catch(e){el('imageStatus').textContent=e.message}
+ finally{remove.disabled=el('photo').disabled=false;apply.disabled=!imageBits}
+}
+el('applyImage').onclick=()=>saveImage(false);
+el('clearImage').onclick=()=>saveImage(true);
+el('retry').onclick=load;
+el('leave').onclick=async ()=>{
+ el('leave').disabled=true;el('save').disabled=true;
+ try{
+  const reply=await deviceRequest('/exit',{method:'POST',headers:{'Content-Type':'application/json'}});
+  if(!reply.ok)throw Error('退出失败，请重试');
+  el('status').textContent=await reply.text();
+ }catch(e){el('status').textContent=e.message;el('leave').disabled=false;el('save').disabled=false}
+};
+el('settings').onsubmit=async event=>{
+ event.preventDefault();el('save').disabled=true;el('leave').disabled=true;el('status').textContent='正在保存…';
+ try{
+  const data={};
+  for(const key of ['ssid','password','mode']) data[key]=el(key).value;
+  if(data.mode==='custom'){
+   for(const key of ['url','token','model','asr','tts','voice']) data[key]=el(key).value;
+  }
+  const reply=await deviceRequest('/profile',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+  const message=await reply.text();if(!reply.ok)throw Error(message);
+  el('status').textContent=message;
+ }catch(e){el('status').textContent=e.message;el('save').disabled=false;el('leave').disabled=false}
+};
+
+const localDevice = location.hostname === '192.168.4.1';
+el('brandIcon').src=document.querySelector('link[rel="icon"]').href;
+if(!localDevice && window.isSecureContext){
+ for(const [rel,href] of [['manifest','./manifest.webmanifest'],['apple-touch-icon','./icons/quack-pocket-180.png']]){
+  const link=document.createElement('link');link.rel=rel;link.href=href;document.head.append(link);
+ }
+ if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js').catch(console.warn);
+ let installPrompt;
+ window.addEventListener('beforeinstallprompt',event=>{
+  event.preventDefault();installPrompt=event;el('install').hidden=false;
+ });
+ el('install').onclick=async()=>{
+  const prompt=installPrompt;if(!prompt)return;
+  installPrompt=null;el('install').hidden=true;await prompt.prompt();
+ };
+ window.addEventListener('appinstalled',()=>{installPrompt=null;el('install').hidden=true});
+}
+const serviceId = '4f4d4e49-0000-4000-8000-000000000001';
+const channelId = '4f4d4e49-0000-4000-8000-000000000002';
+let characteristic, device, queue = Promise.resolve();
+const routes = ['GET /profile','GET /networks','GET /saver','POST /profile','POST /saver','POST /exit'];
+
+async function exchange(link,path,options){
+ if(!link || link!==characteristic)throw Error('蓝牙连接已断开');
+ const route=routes.indexOf((options.method||'GET')+' '+path);
+ if(route<0)throw Error('未知设备操作');
+ const bytes=typeof options.body==='string'?new TextEncoder().encode(options.body):options.body;
+ await link.writeValueWithResponse(Uint8Array.of(0,route));
+ if(bytes?.length){
+  const capacity=(await link.readValue()).getUint8(4);
+  for(let offset=0;offset<bytes.length;offset+=capacity){
+   await link.writeValueWithResponse(Uint8Array.of(1,...bytes.subarray(offset,offset+capacity)));
+  }
+ }
+ await link.writeValueWithResponse(Uint8Array.of(2));
+ const deadline=Date.now()+15000;
+ let frame=await link.readValue();
+ while(!frame.getUint16(0,true)){
+  if(Date.now()>deadline)throw Error('设备响应超时，请重新连接后核对设置');
+  await new Promise(resolve=>setTimeout(resolve,60));
+  frame=await link.readValue();
+ }
+ const status=frame.getUint16(0,true),size=frame.getUint16(2,true),result=new Uint8Array(size);
+ let offset=0;
+ while(offset<size){
+  const part=new Uint8Array(frame.buffer,frame.byteOffset+5,frame.byteLength-5);
+  if(!part.length)throw Error('设备返回的数据不完整');
+  result.set(part,offset);offset+=part.length;
+  if(offset<size){
+   await link.writeValueWithResponse(Uint8Array.of(3,offset&255,offset>>8));
+   frame=await link.readValue();
+  }
+ }
+ return new Response(status===204?null:result,{status});
+}
+function deviceRequest(path,options={}){
+ if(localDevice)return fetch(path,options);
+ const link=characteristic;
+ const pending=queue.then(()=>exchange(link,path,options));
+ queue=pending.catch(()=>{});
+ return pending;
+}
+function openSettings(){
+ el('guide').hidden=true;el('settings').hidden=false;
+ load();scanNetworks();loadImage();
+}
+function disconnected(){
+ characteristic=null;el('settings').hidden=true;el('guide').hidden=false;
+ el('settings').reset();imageBits=null;el('preview').hidden=true;el('applyImage').disabled=true;
+ el('save').disabled=true;el('leave').disabled=false;el('saveWords').disabled=true;
+ for(const id of ['networks','savedWifi','wifiStatus','wordsStatus','imageStatus'])el(id).replaceChildren();
+ el('connection').textContent='设备已断开';el('feedback').textContent='若刚保存并重启或退出，连接会自动结束。再次管理时，请在设备上重新打开设置。';
+}
+el('connect').onclick=async()=>{
+ el('connect').disabled=true;
+ try{
+  device=await navigator.bluetooth.requestDevice({filters:[{services:[serviceId]}]});
+  device.addEventListener('gattserverdisconnected',disconnected,{once:true});
+  el('feedback').textContent='正在连接，请留意系统配对提示…';
+  const server=await device.gatt.connect();
+  const service=await server.getPrimaryService(serviceId);
+  characteristic=await service.getCharacteristic(channelId);
+  await characteristic.readValue();
+  el('connection').textContent='已通过蓝牙连接 · '+(device.name||'嘎嘎口袋');openSettings();
+ }catch(error){
+  device?.gatt.disconnect();
+  el('feedback').textContent=error.name==='NotFoundError'?'未选择设备。请确认墨水屏已进入设置，再点选设备。':'连接失败，请确认蓝牙已开启，按提示输入屏幕上的六位蓝牙配对码，然后重试。';
+ }finally{el('connect').disabled=false}
+};
+if(localDevice){
+ el('connection').textContent='已通过设备热点连接 · 可直接修改设置';openSettings();
+}else{
+ el('guide').hidden=false;el('connection').textContent='通过蓝牙管理身边的嘎嘎口袋';
+ if(!window.isSecureContext || !navigator.bluetooth){
+  el('connect').disabled=true;el('guide').querySelector('details').open=true;
+  el('feedback').textContent=window.isSecureContext?'此浏览器不支持网页蓝牙。可使用 Android Chrome，或按下方说明连接热点。':'网页蓝牙需要 HTTPS，请使用本站的 HTTPS 地址或连接设备热点。';
+ }
+}
+</script></body></html>

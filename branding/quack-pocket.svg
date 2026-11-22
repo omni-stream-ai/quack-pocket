@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">嘎嘎口袋 · Quack Pocket</title>
+  <desc id="desc">一只翘着小绒毛的黄鸭从蓝色布口袋里探出头，口袋正面缝着一枚奶白色星星。</desc>
+  <g stroke="#302e39" stroke-linejoin="round" stroke-linecap="round">
+    <!-- Silhouette of the duck, including its two little crown feathers. -->
+    <path fill="#ffd35c" stroke-width="8" d="M58 157c0-19 9-34 23-46-1-23 10-44 29-57-8-3-12-9-11-17 11-1 20 3 26 10-2-10 1-18 8-24 9 5 13 13 12 23 29-2 52 20 54 50 3 24-9 47-32 60l-25 22z"/>
+    <path fill="#ff9a56" stroke-width="7" d="M171 100c8-5 16-6 25-4 7 2 13 1 19-1 5 9-2 19-13 23-11 4-22 1-30-5-5-4-5-10-1-13z"/>
+    <ellipse cx="159" cy="85" rx="6" ry="8" fill="#302e39" stroke="none"/>
+    <ellipse cx="143" cy="103" rx="10" ry="5" fill="#f39c73" stroke="none"/>
+    <!-- A folded pocket lip and a single stitched star. -->
+    <path fill="#82c6c7" stroke-width="8" d="M39 133q85 22 165-4l-4 48c-2 24-25 40-66 56-6 2-12 2-18 0-41-14-65-30-69-53z"/>
+    <path fill="#b4e2da" stroke-width="7" d="M37 130q84 21 169-5l-1 17q-82 27-165 5z"/>
+    <path fill="none" stroke="#37575b" stroke-width="3.5" stroke-dasharray="4 8" d="M58 161l3 16c3 16 22 30 52 41m28-1c28-12 46-25 47-42l1-15"/>
+    <path fill="#fff4d4" stroke-width="4" d="m125 162 6 11 13 2-9 10 2 13-12-6-12 6 2-13-9-9 13-3z"/>
+  </g>
+</svg>

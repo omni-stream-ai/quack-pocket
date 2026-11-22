@@ -1,0 +1,27 @@
+#pragma once
+
+#include <atomic>
+#include <functional>
+#include <freertos/FreeRTOS.h>
+#include <freertos/queue.h>
+
+#include "music/music_index.h"
+
+enum class MusicAction { InstallModel, Listen, Play, Pause, Previous, Toggle, Next, ChangeMode, Sequential, Shuffle, PlayFile, Prepare, Refresh, Stop };
+
+class MusicPlayer {
+public:
+    bool Start(std::function<void()> power_off);
+    bool RequestPowerOff();
+    bool Request(MusicAction action, const char *path = "");
+
+private:
+    struct Command {
+        MusicAction action;
+        char path[MUSIC_PATH_CAPACITY];
+    };
+    QueueHandle_t commands_ = nullptr;
+    std::atomic<bool> powering_off_{false};
+    std::function<void()> power_off_;
+    void Run();
+};

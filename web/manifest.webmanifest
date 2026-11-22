@@ -1,0 +1,16 @@
+{
+  "id": "./",
+  "name": "嘎嘎口袋",
+  "short_name": "嘎嘎口袋",
+  "description": "连接身边的嘎嘎口袋，管理无线网络、语音服务和墨水屏屏保。",
+  "lang": "zh-CN",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f1f5ef",
+  "theme_color": "#146651",
+  "icons": [
+    {"src": "./icons/quack-pocket-192.png", "sizes": "192x192", "type": "image/png"},
+    {"src": "./icons/quack-pocket-512.png", "sizes": "512x512", "type": "image/png"}
+  ]
+}
