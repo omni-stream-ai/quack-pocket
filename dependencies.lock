@@ -155,6 +155,16 @@ dependencies:
     - esp32c5
     - esp32c6
     version: 0.6.1
+  espressif/mdns:
+    component_hash: 3ec0af5f6bce310512e90f482388d21cc7c0e99668172d2f895356165fc6f7c5
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.0'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 1.8.2
   idf:
     source:
       type: idf
@@ -176,8 +186,9 @@ direct_dependencies:
 - espressif/esp_codec_dev
 - espressif/esp_lvgl_port
 - espressif/esp_new_jpeg
+- espressif/mdns
 - idf
 - lvgl/lvgl
-manifest_hash: 50e9b5101a724e0c53fa978d029def95c447104225dab56c8661ca12479c005a
+manifest_hash: 6434c2314261c6c8e8266b93660b0f0df68b0cdcd0e108136886a7553ad56a52
 target: esp32s3
 version: 2.0.0

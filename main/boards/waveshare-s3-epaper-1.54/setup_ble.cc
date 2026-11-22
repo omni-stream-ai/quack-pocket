@@ -14,6 +14,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+extern "C" void ble_store_config_init(void);
 namespace {
 // One authenticated characteristic. UUID bytes are in BLE wire order.
 const ble_uuid128_t service = BLE_UUID128_INIT(1,0,0,0,0,0,0,0x80,0,0x40,0,0,0x49,0x4e,0x4d,0x4f);
@@ -22,13 +23,16 @@ unsigned pairing_code;
 uint8_t address_type;
 struct Route { const char* path; bool post; };
 constexpr Route routes[] = {{"/profile",false},{"/networks",false},{"/saver",false},
-                            {"/profile",true},{"/saver",true},{"/exit",true}};
+                            {"/profile",true},{"/saver",true},{"/exit",true},
+                            {"/shutdown-saver",false},{"/shutdown-saver",true},{"/access",true}};
 struct Transaction {
     unsigned generation;
     unsigned route;
     std::string body;
+    std::string key;
 };
 std::mutex lock;
+std::string browser_key;
 unsigned generation = 0;
 std::unique_ptr<Transaction> incoming;
 std::string reply;
@@ -58,9 +62,10 @@ void Dispatch(void* argument) {
     auto client = esp_http_client_init(&config);
     int code = 503;
     if (client) {
+        esp_http_client_set_header(client,"X-Pocket-Key",request->key.c_str());
         if (route.post) {
             esp_http_client_set_method(client, HTTP_METHOD_POST);
-            esp_http_client_set_header(client, "Content-Type", request->route == 4 ?
+            esp_http_client_set_header(client, "Content-Type", (request->route == 4 || request->route == 7) ?
                                        "application/octet-stream" : "application/json");
             esp_http_client_set_post_field(client, request->body.data(), request->body.size());
         }
@@ -98,9 +103,16 @@ int Access(uint16_t conn, uint16_t, ble_gatt_access_ctxt* ctx, void*) {
     if (!len || len > sizeof(packet) || os_mbuf_copydata(ctx->om, 0, len, packet))
         return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
     switch (packet[0]) {
+    case 4: {
+        if (len != 17 || running || incoming) break;
+        char hex[33];
+        for (unsigned i=0;i<16;++i) snprintf(hex+2*i,3,"%02x",packet[1+i]);
+        browser_key=hex;
+        return 0;
+    }
     case 0: // Begin, discarding an incomplete upload.
         if (running || len != 2 || packet[1] >= sizeof(routes)/sizeof(Route)) break;
-        incoming = std::make_unique<Transaction>(Transaction{generation,packet[1],{}});
+        incoming = std::make_unique<Transaction>(Transaction{generation,packet[1],{},browser_key});
         reply.clear(); status = offset = 0;
         return 0;
     case 1:
@@ -128,6 +140,12 @@ ble_gatt_chr_def characteristics[2]{};
 ble_gatt_svc_def services[2]{};
 void Advertise();
 int Gap(ble_gap_event* event, void*) {
+    if (event->type == BLE_GAP_EVENT_REPEAT_PAIRING) {
+        ble_gap_conn_desc desc{};
+        if (!ble_gap_conn_find(event->repeat_pairing.conn_handle,&desc) &&
+            !ble_store_util_delete_peer(&desc.peer_id_addr)) return BLE_GAP_REPEAT_PAIRING_RETRY;
+        return BLE_GAP_REPEAT_PAIRING_IGNORE;
+    }
     if (event->type == BLE_GAP_EVENT_PASSKEY_ACTION &&
         event->passkey.params.action == BLE_SM_IOACT_DISP) {
         ble_sm_io io{};
@@ -137,7 +155,7 @@ int Gap(ble_gap_event* event, void*) {
     }
     if (event->type == BLE_GAP_EVENT_DISCONNECT) {
         std::lock_guard<std::mutex> guard(lock);
-        ++generation; incoming.reset(); reply.clear(); status = offset = 0;
+        ++generation; browser_key.clear(); incoming.reset(); reply.clear(); status = offset = 0;
     }
     if (event->type == BLE_GAP_EVENT_DISCONNECT ||
         (event->type == BLE_GAP_EVENT_CONNECT && event->connect.status)) Advertise();
@@ -180,6 +198,10 @@ void StartSetupBluetooth(const char* device_name, unsigned passkey) {
     }
     ble_hs_cfg.sm_io_cap = BLE_HS_IO_DISPLAY_ONLY;
     ble_hs_cfg.sm_mitm = ble_hs_cfg.sm_sc = ble_hs_cfg.sm_sc_only = 1;
+    ble_hs_cfg.sm_bonding = 1;
+    ble_hs_cfg.sm_our_key_dist = ble_hs_cfg.sm_their_key_dist = BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID;
+    ble_hs_cfg.store_status_cb = ble_store_util_status_rr;
+    ble_store_config_init();
     ble_hs_cfg.sync_cb = Advertise;
     nimble_port_freertos_init([](void*) { nimble_port_run(); nimble_port_freertos_deinit(); });
 }

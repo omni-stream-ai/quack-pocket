@@ -24,6 +24,53 @@
 #include "voice/voice_profile.h"
 
 
+
+// 48-pixel monochrome rendition of branding/quack-pocket.svg.
+static void AddPocketDuck(lv_obj_t* parent, int x, int y) {
+    static const uint8_t pixels[] = {
+    0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0xff, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xc0,
+    0x00, 0x00, 0x00, 0x00, 0x01, 0xe0, 0x00, 0x00, 0x00, 0x00, 0x39, 0x30,
+    0x00, 0x00, 0x00, 0x00, 0x3f, 0x30, 0x00, 0x00, 0x00, 0x00, 0x33, 0x3e,
+    0x00, 0x00, 0x00, 0x00, 0x19, 0x0f, 0x80, 0x00, 0x00, 0x00, 0x18, 0x00,
+    0xe0, 0x00, 0x00, 0x00, 0x30, 0x00, 0x70, 0x00, 0x00, 0x00, 0x60, 0x00,
+    0x30, 0x00, 0x00, 0x00, 0xc0, 0x00, 0x18, 0x00, 0x00, 0x00, 0xc0, 0x04,
+    0x08, 0x00, 0x00, 0x01, 0x80, 0x06, 0x0c, 0x00, 0x00, 0x01, 0x80, 0x06,
+    0x0c, 0x00, 0x00, 0x01, 0x00, 0x00, 0x7f, 0x80, 0x00, 0x01, 0x00, 0x01,
+    0xff, 0x80, 0x00, 0x03, 0x00, 0x01, 0x81, 0x80, 0x00, 0x03, 0x00, 0x01,
+    0x81, 0x80, 0x00, 0x07, 0x00, 0x00, 0xff, 0x00, 0x00, 0x06, 0x00, 0x00,
+    0x7e, 0x00, 0x00, 0x0c, 0x00, 0x00, 0x1e, 0x00, 0x03, 0xf8, 0x00, 0x01,
+    0xfe, 0x00, 0x03, 0xff, 0xff, 0xff, 0xc2, 0x00, 0x01, 0x03, 0xff, 0xf0,
+    0x0e, 0x00, 0x01, 0xe0, 0x00, 0x00, 0xfe, 0x00, 0x01, 0xff, 0xc0, 0x7f,
+    0xe6, 0x00, 0x01, 0x8f, 0xff, 0xfe, 0x06, 0x00, 0x00, 0x80, 0x03, 0x00,
+    0x04, 0x00, 0x00, 0x80, 0x03, 0x80, 0x14, 0x00, 0x00, 0xd0, 0x0e, 0xe0,
+    0x04, 0x00, 0x00, 0xc0, 0x08, 0x20, 0x0c, 0x00, 0x00, 0xc0, 0x0c, 0x40,
+    0x0c, 0x00, 0x00, 0x60, 0x04, 0x40, 0x2c, 0x00, 0x00, 0x64, 0x07, 0xc0,
+    0x18, 0x00, 0x00, 0x30, 0x04, 0x40, 0xb8, 0x00, 0x00, 0x18, 0x00, 0x02,
+    0x70, 0x00, 0x00, 0x0e, 0x40, 0x08, 0xe0, 0x00, 0x00, 0x07, 0x80, 0x23,
+    0x80, 0x00, 0x00, 0x01, 0xe0, 0x0f, 0x00, 0x00, 0x00, 0x00, 0x78, 0x7c,
+    0x00, 0x00, 0x00, 0x00, 0x1f, 0xf0, 0x00, 0x00, 0x00, 0x00, 0x03, 0x80,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    };
+    static const lv_image_dsc_t image = [] {
+        lv_image_dsc_t icon{};
+        icon.header.magic = LV_IMAGE_HEADER_MAGIC;
+        icon.header.cf = LV_COLOR_FORMAT_I1;
+        icon.header.w = icon.header.h = 48;
+        icon.header.stride = 6;
+        icon.data_size = sizeof(pixels);
+        icon.data = pixels;
+        return icon;
+    }();
+    auto* duck = lv_image_create(parent);
+    lv_image_set_src(duck, &image);
+    lv_obj_set_pos(duck, x, y);
+}
+
+LV_FONT_DECLARE(font_awesome_30_4);
+
 #define TAG "CustomLcdDisplay"
 
 
@@ -80,6 +127,10 @@ void CustomLcdDisplay::lvgl_flush_cb(lv_display_t * disp, const lv_area_t * area
 {
     assert(disp != NULL);
     CustomLcdDisplay *driver = (CustomLcdDisplay *)lv_display_get_user_data(disp);
+    if (driver->shutdown_frame_) {
+        lv_disp_flush_ready(disp);
+        return;
+    }
     auto *pixels = reinterpret_cast<const uint16_t*>(color_p);
     bool changed = false;
     for (int y = area->y1; y <= area->y2; ++y) {
@@ -149,7 +200,8 @@ CustomLcdDisplay::CustomLcdDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_p
     ESP_LOGI(TAG, "ui start");
 
     SetupUI();
-    if (nvs_flash_init_partition("omni_ui") == ESP_OK && Lock(3000)) {
+    ESP_ERROR_CHECK_WITHOUT_ABORT(nvs_flash_init_partition("omni_ui"));
+    if (Lock(0)) {
         std::memset(saver_pixels_, 255, 4);
         saver_pixels_[7] = 255;
         saver_image_.header.magic = LV_IMAGE_HEADER_MAGIC;
@@ -158,7 +210,7 @@ CustomLcdDisplay::CustomLcdDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_p
         saver_image_.header.stride = 25;
         saver_image_.data_size = sizeof(saver_pixels_);
         saver_image_.data = saver_pixels_;
-        saver_available_ = ReadSaver(saver_pixels_ + 8);
+        saver_available_ = ReadSaver(Saver::Standby, saver_pixels_ + 8);
         last_activity_ = lv_tick_get();
         lv_timer_create([](lv_timer_t* t) {
             static_cast<CustomLcdDisplay*>(lv_timer_get_user_data(t))->UpdateSaver();
@@ -447,7 +499,7 @@ bool CustomLcdDisplay::EPD_DrawColorPixel(uint16_t x, uint16_t y,uint8_t color) 
     return buffer[index] != before;
 }
 
-void CustomLcdDisplay::ShowSetupCode(const char* ssid, const char* password, unsigned pairing_code) {
+void CustomLcdDisplay::ShowSetupCode(const char* ssid, const char* password, unsigned pairing_code, const std::string& lan_url, const std::string& fingerprint, const std::string& address) {
     if (!Lock(3000)) return;
     ResetSaver();
     if (!setup_overlay_) {
@@ -462,21 +514,23 @@ void CustomLcdDisplay::ShowSetupCode(const char* ssid, const char* password, uns
 
         // Both fields are generated locally using only letters, digits and '-'.
         std::string payload = std::string("WIFI:T:WPA;S:") + ssid + ";P:" + password + ";;";
+        if (!lan_url.empty()) payload = lan_url;
         auto* qr = lv_qrcode_create(setup_overlay_);
-        lv_qrcode_set_size(qr, 116);
+        lv_qrcode_set_size(qr, 112);
         lv_qrcode_set_dark_color(qr, lv_color_black());
         lv_qrcode_set_light_color(qr, lv_color_white());
-        lv_obj_align(qr, LV_ALIGN_TOP_MID, 0, 16);
+        lv_obj_set_pos(qr, 6, 5);
         if (lv_qrcode_update(qr, payload.data(), payload.size()) != LV_RESULT_OK)
             ESP_LOGW(TAG, "Wi-Fi QR encoding failed");
 
-        auto* label = lv_label_create(setup_overlay_);
-        lv_obj_set_style_text_font(label, lv_obj_get_style_text_font(lv_display_get_screen_active(display_), 0), 0);
-        lv_obj_set_style_text_color(label, lv_color_black(), 0);
-        lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
-        lv_obj_set_style_text_line_space(label, 0, 0);
-        lv_label_set_text_fmt(label, "%s  %s\nhttp://192.168.4.1\n蓝牙配对 %06u", ssid, password, pairing_code);
-        lv_obj_align(label, LV_ALIGN_TOP_MID, 0, 148);
+        auto* steps = lv_label_create(setup_overlay_);
+        lv_label_set_text(steps, !lan_url.empty() ? "同一 Wi-Fi\n扫码管理\n\nPWR 退出" : "1 手机扫码\n加入热点\n\n2 浏览器\n打开下方\n网址");
+        lv_obj_set_pos(steps, 130, 4);
+        auto* details = lv_label_create(setup_overlay_);
+        lv_obj_set_style_text_line_space(details, 0, 0);
+        if (!lan_url.empty()) lv_label_set_text_fmt(details, "备用 https://%s\n证书 SHA256 前 24 位\n%.12s\n%s", address.c_str(),fingerprint.c_str(),fingerprint.c_str()+12);
+        else lv_label_set_text_fmt(details, "http://192.168.4.1\n热点 %s\n密码 %s\n蓝牙配对码 %06u", ssid, password, pairing_code);
+        lv_obj_set_pos(details, 6, 126);
     }
     Unlock();
 }
@@ -492,7 +546,7 @@ void CustomLcdDisplay::SetChatMessage(const char* role, const char* content) {
     if (content && !*content && !strcmp(role, "system") &&
         Application::GetInstance().GetDeviceState() == kDeviceStateIdle) {
         const char* source = VoiceProfile::Load().Custom() ? "自建语音网关" : "小智语音服务";
-        std::string home = std::string(source) + "\n说“小鸭小鸭”开始对话\nPWR 本地音乐\n长按 BOOT 主菜单";
+        std::string home = std::string(source) + (Settings("omni_ui").GetInt("wake", 1) ? "\n说“小鸭小鸭”开始对话" : "\n按 BOOT 开始对话") + "\nPWR 播放音乐\n长按 BOOT 主菜单";
         LcdDisplay::SetChatMessage(role, home.c_str());
     } else if (content && !strcmp(role, "system") &&
                Application::GetInstance().GetDeviceState() == kDeviceStateActivating) {
@@ -503,9 +557,33 @@ void CustomLcdDisplay::SetChatMessage(const char* role, const char* content) {
     }
 }
 
-void CustomLcdDisplay::ShowMenu(const std::string& text) {
+void CustomLcdDisplay::ShowMenu(const std::string& header, const char* icon, const char* title, const std::string& detail) {
     if (!Lock(3000)) return;
-    RenderMenuLocked(text);
+    RenderMenuLocked(header);
+    auto centered = [this](const char* text, int y) {
+        auto* label = lv_label_create(menu_label_);
+        lv_label_set_text(label, text);
+        lv_obj_align(label, LV_ALIGN_TOP_MID, 0, y);
+        return label;
+    };
+    auto* glyph = centered(icon, 44);
+    lv_obj_set_style_text_font(glyph, &font_awesome_30_4, 0);
+    centered(title, 88);
+    if (!detail.empty()) centered(detail.c_str(), 110);
+    centered("PWR 短按下一项 · 双击上一项", 145);
+    centered("BOOT 短按确认 · 长按返回", 167);
+    Unlock();
+}
+
+void CustomLcdDisplay::ShowDisconnectedHome(bool reconnecting) {
+    if (!Lock(3000)) return;
+    ResetSaver();
+    if (!network_page_) network_page_ = CreatePageLabel();
+    lv_obj_clean(network_page_);
+    RenderHomeText(network_page_, reconnecting ? "Wi-Fi 重连中" : "尚未设置 Wi-Fi", "短按 BOOT 说音乐口令");
+    AddPocketDuck(network_page_, 136, 5);
+    network_home_ = true;
+    if (menu_label_) lv_obj_move_foreground(menu_label_);
     Unlock();
 }
 
@@ -548,6 +626,7 @@ void CustomLcdDisplay::ShowVoiceHint(const char* text, int duration_ms) {
         }
         lv_label_set_text(voice_hint_, text);
         lv_obj_align(voice_hint_, LV_ALIGN_BOTTOM_MID, 0, -2);
+        if (standby_page_) lv_obj_move_foreground(standby_page_);
         voice_hint_timer_ = lv_timer_create([](lv_timer_t* timer) {
             auto* self = static_cast<CustomLcdDisplay*>(lv_timer_get_user_data(timer));
             lv_obj_delete(self->voice_hint_);
@@ -562,12 +641,30 @@ void CustomLcdDisplay::ShowVoiceHint(const char* text, int duration_ms) {
     Unlock();
 }
 
+void CustomLcdDisplay::RenderHomeText(lv_obj_t* page, const char* greeting, const char* action) {
+    lv_label_set_text_fmt(page, "嘎嘎口袋\n%s\n\n%s\n短按 PWR 播放或暂停音乐\n长按 BOOT 打开主菜单", greeting, action);
+}
+
+void CustomLcdDisplay::RenderConnectedHome() {
+    const char* greeting = Settings("omni_ui").GetInt("wake", 1) ? "叫我“小鸭小鸭”" : "按键唤醒";
+    RenderHomeText(home_page_, greeting, "短按 BOOT 进入语音通话");
+}
+
+void CustomLcdDisplay::RefreshHome() {
+    if (!Lock(3000)) return;
+    if (home_page_) RenderConnectedHome();
+    Unlock();
+}
+
 void CustomLcdDisplay::ShowHome(bool visible) {
     if (!Lock(3000)) return;
     ResetSaver();
     if (visible) {
-        if (!home_page_) home_page_ = CreatePageLabel();
-        lv_label_set_text(home_page_, "首页\n说“小鸭小鸭”可直接对话\n短按 BOOT 进入语音通话\n短按 PWR 播放或暂停音乐\n长按 BOOT 打开主菜单");
+        if (!home_page_) {
+            home_page_ = CreatePageLabel();
+            AddPocketDuck(home_page_, 136, 5);
+        }
+        RenderConnectedHome();
         if (network_page_) lv_obj_move_foreground(network_page_);
         if (menu_label_) lv_obj_move_foreground(menu_label_);
     } else if (home_page_) {
@@ -580,8 +677,10 @@ void CustomLcdDisplay::ShowHome(bool visible) {
 void CustomLcdDisplay::ShowNetworkPage(const char* text) {
     if (!Lock(3000)) return;
     ResetSaver();
+    network_home_ = false;
     if (text) {
         if (!network_page_) network_page_ = CreatePageLabel();
+        lv_obj_clean(network_page_);
         lv_label_set_text(network_page_, text);
         if (menu_label_) lv_obj_move_foreground(menu_label_);
     } else if (network_page_) {
@@ -620,7 +719,7 @@ void CustomLcdDisplay::SetStatus(const char* status) {
     if (status && !(strlen(status) >= 5 && status[2] == ':' && isdigit((unsigned char)status[0]))) {
         if (Lock(3000)) {
             ResetSaver();
-            saver_allowed_ = !strcmp(status, Lang::Strings::STANDBY) || !strcmp(status, "离线首页");
+            saver_allowed_ = !strcmp(status, Lang::Strings::STANDBY);
             Unlock();
         }
     }
@@ -628,7 +727,7 @@ void CustomLcdDisplay::SetStatus(const char* status) {
 }
 
 void CustomLcdDisplay::UpdateSaver() {
-    if (!saver_available_ || (!saver_allowed_ && !home_page_) || menu_label_ || network_page_ || setup_overlay_ ||
+    if (standby_page_ || !saver_available_ || (!saver_allowed_ && !home_page_ && !network_home_) || menu_label_ || (network_page_ && !network_home_) || setup_overlay_ ||
         saver_layer_ || lv_tick_elaps(last_activity_) < 60000) return;
     saver_layer_ = lv_image_create(lv_display_get_screen_active(display_));
     lv_obj_add_flag(saver_layer_, LV_OBJ_FLAG_FLOATING);
@@ -636,37 +735,90 @@ void CustomLcdDisplay::UpdateSaver() {
     lv_obj_center(saver_layer_);
 }
 
-bool CustomLcdDisplay::ReadSaver(uint8_t* pixels) {
-    nvs_handle_t nvs;
-    if (nvs_open_from_partition("omni_ui", "display", NVS_READONLY, &nvs) != ESP_OK) return false;
-    size_t length = saver_bytes;
-    auto err = nvs_get_blob(nvs, "saver", pixels, &length);
-    nvs_close(nvs);
-    return err == ESP_OK && length == saver_bytes;
+namespace {
+extern const uint8_t listening_duck[] asm("_binary_duck_listening_pbm_start");
+extern const uint8_t sleeping_duck[] asm("_binary_duck_sleeping_pbm_start");
+const uint8_t* DefaultSaver(CustomLcdDisplay::Saver slot) {
+    // Both embedded P4 images use the header "P4\n200 200\n", MSB first, black = 1.
+    return (slot == CustomLcdDisplay::Saver::Standby ? listening_duck : sleeping_duck) + sizeof("P4\n200 200\n") - 1;
+}
+const char* SaverKey(CustomLcdDisplay::Saver slot) {
+    return slot == CustomLcdDisplay::Saver::Standby ? "saver" : "shutdown";
+}
 }
 
-bool CustomLcdDisplay::SaveSaver(const uint8_t* pixels) {
+// Always supplies a complete image. The return value identifies a custom image.
+bool CustomLcdDisplay::ReadSaver(Saver slot, uint8_t* pixels) {
     nvs_handle_t nvs;
-    if (nvs_open_from_partition("omni_ui", "display", NVS_READWRITE, &nvs) != ESP_OK) return false;
-    auto err = pixels ? nvs_set_blob(nvs, "saver", pixels, saver_bytes) : nvs_erase_key(nvs, "saver");
-    if (err == ESP_ERR_NVS_NOT_FOUND && !pixels) err = ESP_OK;
-    if (err == ESP_OK) err = nvs_commit(nvs);
-    nvs_close(nvs);
-    if (err != ESP_OK || !Lock(3000)) return false;
+    if (nvs_open_from_partition("omni_ui", "display", NVS_READONLY, &nvs) == ESP_OK) {
+        size_t length = saver_bytes;
+        auto err = nvs_get_blob(nvs, SaverKey(slot), pixels, &length);
+        nvs_close(nvs);
+        if (err == ESP_OK && length == saver_bytes) return true;
+    }
+    memcpy(pixels, DefaultSaver(slot), saver_bytes);
+    return false;
+}
+
+bool CustomLcdDisplay::SaveSaver(Saver slot, const uint8_t* pixels) {
+    if (!Lock(3000)) return false;
+    nvs_handle_t nvs;
+    auto err = nvs_open_from_partition("omni_ui", "display", NVS_READWRITE, &nvs);
+    if (err == ESP_OK) {
+        auto key = SaverKey(slot);
+        err = pixels ? nvs_set_blob(nvs, key, pixels, saver_bytes) : nvs_erase_key(nvs, key);
+        if (err == ESP_ERR_NVS_NOT_FOUND && !pixels) err = ESP_OK;
+        if (err == ESP_OK) err = nvs_commit(nvs);
+        nvs_close(nvs);
+    }
+    if (err == ESP_OK && slot == Saver::Standby) {
+        ResetSaver();
+        lv_image_cache_drop(&saver_image_);
+        memcpy(saver_pixels_ + 8, pixels ? pixels : DefaultSaver(slot), saver_bytes);
+        saver_available_ = pixels != nullptr;
+        if (standby_page_) lv_obj_invalidate(standby_page_);
+    }
+    Unlock();
+    return err == ESP_OK;
+}
+
+void CustomLcdDisplay::ShowShutdownSaver() {
+    Lock(0);
+    shutdown_frame_ = true;
+    ReadSaver(Saver::Shutdown, buffer);
+    for (size_t i = 0; i < saver_bytes; ++i) buffer[i] ^= 0xff; // panel RAM uses white = 1
+    EPD_Init();
+    EPD_DisplayPartBaseImage(); // waits for the physical BUSY pin after the full refresh
+    Unlock();
+}
+
+bool CustomLcdDisplay::ShowVoiceStandby(bool visible) {
+    if (!Lock(3000)) return false;
     ResetSaver();
-    lv_image_cache_drop(&saver_image_);
-    if (pixels) memcpy(saver_pixels_ + 8, pixels, saver_bytes);
-    saver_available_ = pixels != nullptr;
+    if (visible && !standby_page_) {
+        standby_page_ = lv_image_create(lv_display_get_layer_top(display_));
+        lv_image_set_src(standby_page_, &saver_image_);
+        lv_obj_center(standby_page_);
+    } else if (!visible && standby_page_) {
+        lv_obj_delete(standby_page_);
+        standby_page_ = nullptr;
+    }
     Unlock();
     return true;
 }
 
+void CustomLcdDisplay::ShowUpdatePage(const std::string& text) {
+    if (!Lock(3000)) return;
+    RenderMenuLocked(text);
+    Unlock();
+}
+
 void CustomLcdDisplay::ShowGuide(int page) {
     static const char* const messages[] = {
-        "欢迎使用\n\n卡内音乐可以离线播放。\n首页按 BOOT 进入语音通话。\n\n以后可在主菜单重看帮助。",
-        "BOOT 键\n单击对话，长按打开菜单。\n菜单中单击确认。",
-        "PWR 键\n单击播放或暂停，双击下一首。\n菜单中单击换项，长按关机。",
-        "联网与设置\n\n长按 BOOT 打开主菜单，\n选“手机配网与模型”。\n手机扫码后可保存多个 Wi-Fi，\n也能设置语音服务和屏保。"
+        "嘎嘎口袋   1/4\n嘎，按 BOOT 翻页。\n看背面，USB 朝右。",
+        "口袋音乐   2/4\n卡内 MP3 可离线听。\nPWR 播放或暂停。\n双击切歌，长按关机。",
+        "叫醒小鸭   3/4\n\n联网就绪后，喊我\n“小鸭小鸭”，再说句话。\n也可按 BOOT 进入通话。\n长按 BOOT 打开主菜单。",
+        "手机设置   4/4\n\n长按 BOOT 打开菜单。\nPWR 换项，BOOT 确认。\n选“手机配网与模型”扫码。\n想再看？菜单选“使用帮助”。"
     };
     if (page < 0 || page > 3 || !Lock(3000)) return;
     RenderMenuLocked(messages[page]);
@@ -676,15 +828,15 @@ void CustomLcdDisplay::ShowGuide(int page) {
             lv_label_set_text(obj, text);
             lv_obj_set_pos(obj, x, y);
         };
-        if (page == 1 || page == 2) {
+        if (page == 0 || page == 1) {
             // Rear view as in Waveshare's V2 hardware diagram, USB on the right.
             auto* outline = lv_obj_create(menu_label_);
             lv_obj_remove_style_all(outline);
-            lv_obj_set_pos(outline, 24, 76);
+            lv_obj_set_pos(outline, 24, 80);
             lv_obj_set_size(outline, 140, 42);
             lv_obj_set_style_border_width(outline, 1, 0);
             lv_obj_set_style_border_color(outline, lv_color_black(), 0);
-            label("背面       USB >", 34, 83);
+            label("背面       USB >", 34, 87);
             for (int x : {100, 130}) {
                 auto* key = lv_obj_create(menu_label_);
                 lv_obj_remove_style_all(key);
@@ -698,9 +850,10 @@ void CustomLcdDisplay::ShowGuide(int page) {
             lv_line_set_points(line, arrow, 5);
             lv_obj_set_style_line_color(line, lv_color_black(), 0);
             lv_obj_set_style_line_width(line, 2, 0);
-            lv_obj_set_pos(line, page == 1 ? 100 : 130, 121);
-            label(page == 1 ? "BOOT" : "PWR", page == 1 ? 87 : 122, 137);
+            lv_obj_set_pos(line, page == 0 ? 100 : 130, 121);
+            label(page == 0 ? "BOOT" : "PWR", page == 0 ? 87 : 122, 137);
         }
+        if (page == 0 || page == 2) AddPocketDuck(menu_label_, 142, 0);
         label(page == 3 ? "BOOT 完成    PWR 跳过" : "BOOT 下一页  PWR 跳过", 0, 169);
     }
     Unlock();

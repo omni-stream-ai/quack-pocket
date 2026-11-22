@@ -197,6 +197,11 @@ idf_component_register(SRCS ${SOURCES} "music/music_index.c" "music/mp3_stream.c
                     WHOLE_ARCHIVE
                     )
 
+target_add_binary_data(${COMPONENT_LIB} "${PROJECT_DIR}/branding/duck-listening.pbm" BINARY)
+target_add_binary_data(${COMPONENT_LIB} "${PROJECT_DIR}/branding/duck-sleeping.pbm" BINARY)
+target_add_binary_data(${COMPONENT_LIB} "${CMAKE_CURRENT_SOURCE_DIR}/boards/${BOARD_TYPE}/ota_public.pem" TEXT)
+target_link_options(${COMPONENT_LIB} INTERFACE -Wl,--wrap=get_model_base_path)
+
 if(OMNI_MUSIC_HIL)
     target_add_binary_data(${COMPONENT_LIB} "${PROJECT_DIR}/tests/board/wake_phrase.pcm" BINARY)
     target_sources(${COMPONENT_LIB} PRIVATE "${PROJECT_DIR}/tests/board/music_hil.cc")

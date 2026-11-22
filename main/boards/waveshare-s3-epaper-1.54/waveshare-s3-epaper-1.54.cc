@@ -12,15 +12,22 @@
 #include <esp_adc/adc_oneshot.h>
 #include <esp_adc/adc_cali_scheme.h>
 #include "settings.h"
+#include "standby.h"
 #include <esp_sleep.h>
 #include <esp_timer.h>
 #include <esp_lcd_panel_vendor.h>
 #include <driver/i2c_master.h>
 #include <driver/spi_common.h>
 #include <wifi_station.h>
+#include <esp_wifi.h>
+#include <ssid_manager.h>
+#include <font_awesome.h>
 #include "mcp_server.h"
 #include "music_player.h"
 #include "phone_setup.h"
+#include "setup_access.h"
+#include "pocket_update.h"
+#include <esp_app_desc.h>
 #include "voice/voice_profile.h"
 #include "lvgl.h"
 #include "custom_lcd_display.h"
@@ -40,9 +47,9 @@ private:
     adc_oneshot_unit_handle_t battery_adc_ = nullptr;
     adc_cali_handle_t battery_cali_ = nullptr;
     std::atomic<bool> low_battery_{false};
-    enum class NetworkPage { Hidden, Disconnected, Local };
+    enum class NetworkPage { Hidden, Disconnected, Home };
     std::atomic<NetworkPage> network_page_{NetworkPage::Hidden};
-    std::atomic<bool> local_only_{false};
+
     std::atomic<bool> menu_open_{false};
     size_t item_ = 0;
     std::atomic<int> guide_page_{-1};
@@ -67,10 +74,16 @@ private:
         return true;
     }
     enum MenuItem { Chat, Play, Next, Sequential, Shuffle, VolumeDown, VolumeUp, Refresh,
-                    Phone, OfflineVoice, InstallModel, Help, Return, ItemCount };
-    static constexpr const char* items_[ItemCount] = {
-        "进入语音通话模式", "本地播放 / 暂停", "下一首", "顺序播放", "随机播放",
-        "音量减 10", "音量加 10", "刷新曲库", "手机配网与模型", "离线语音控制", "安装离线模型", "使用帮助", "返回"
+                    Phone, LanSetup, Trusted, OfflineVoice, InstallModel, WakeSetting, StandbyTimeout, Update, Help, Return, ItemCount };
+    struct MenuEntry { const char* title; const char* icon; };
+    static constexpr MenuEntry items_[ItemCount] = {
+        {"语音通话", FONT_AWESOME_COMMENT}, {"播放 / 暂停", FONT_AWESOME_MUSIC},
+        {"下一首", FONT_AWESOME_FORWARD_STEP}, {"顺序播放", FONT_AWESOME_ARROWS_REPEAT},
+        {"随机播放", FONT_AWESOME_MUSIC}, {"调小音量", FONT_AWESOME_VOLUME_LOW},
+        {"调大音量", FONT_AWESOME_VOLUME_HIGH}, {"刷新曲库", FONT_AWESOME_ARROWS_ROTATE},
+        {"手机配网与模型", FONT_AWESOME_WIFI}, {"同网扫码管理", FONT_AWESOME_WIFI}, {"已授权设备", FONT_AWESOME_GEAR}, {"说一句音乐口令", FONT_AWESOME_MICROPHONE},
+        {"安装离线模型", FONT_AWESOME_DOWNLOAD}, {"语音唤醒", FONT_AWESOME_MICROPHONE}, {"自动待机时间", FONT_AWESOME_CLOCK}, {"检查更新", FONT_AWESOME_DOWNLOAD}, {"使用帮助", FONT_AWESOME_CIRCLE_QUESTION},
+        {"返回", FONT_AWESOME_ARROW_LEFT}
     };
 
     esp_timer_handle_t green_off_ = nullptr;
@@ -124,27 +137,57 @@ private:
         return true;
     }
 
-    std::string ServiceName() const {
-        return VoiceProfile::Load().Custom() ? "自建网关" : "小智服务";
+    void RenderMenu() {
+        int level;
+        bool charging, discharging;
+        std::string battery = GetBatteryLevel(level, charging, discharging)
+            ? std::to_string(level) + "%" : "--%";
+        auto title = items_[item_].title;
+        if (item_ == Chat && WifiStation::GetInstance().IsConnected() &&
+            !Application::GetInstance().IsVoicePaused()) title = "退出语音通话";
+        std::string header = "主菜单   " + std::to_string(item_ + 1) + "/" +
+            std::to_string(ItemCount) + "      " + battery;
+        std::string detail;
+        if (item_ == VolumeDown || item_ == VolumeUp)
+            detail = "当前音量 " + std::to_string(GetAudioCodec()->output_volume());
+        if (item_ == WakeSetting) detail = wake_allowed_ ? "已开启，确认关闭" : "已关闭，确认开启";
+        if (item_ == StandbyTimeout) detail = standby_minutes_ ?
+            std::to_string(standby_minutes_.load()) + (wake_allowed_ ? " 分钟 · 确认更改" : " 分钟 · 需开语音唤醒") : "关闭 · 确认更改";
+        if (item_ == Update) detail = std::string("当前版本 ") + esp_app_get_description()->version;
+        display_->ShowMenu(header, items_[item_].icon, title, detail);
     }
 
-    void RenderMenu() {
-        int level; bool charging, discharging;
-        std::string battery = GetBatteryLevel(level, charging, discharging)
-            ? (level < 20 ? "低电 " : "约 ") + std::to_string(level) + "%" : "电量未知";
-        std::string text = "主菜单   " + battery + "\n" +
-            ((local_only_ || Application::GetInstance().IsVoicePaused() || network_page_ == NetworkPage::Local) ? "首页" : ServiceName()) + "   音量 " +
-            std::to_string(GetAudioCodec()->output_volume()) + "\n";
-        size_t first = item_ / 3 * 3;
-        for (size_t i = first; i < std::min(first + 3, size_t(ItemCount)); ++i) {
-            text += i == item_ ? "> " : "   ";
-            text += (i == Chat && !local_only_ && network_page_ == NetworkPage::Hidden &&
-                     !Application::GetInstance().IsVoicePaused() && !setup_waiter_ &&
-                     WifiStation::GetInstance().IsConnected()) ? "退出语音通话" : items_[i];
-            text += "\n";
+    int peer_index_ = -1;
+    bool confirm_remove_ = false;
+    std::vector<SetupPeer> peers_;
+    void ShowPeers() {
+        if (peer_index_ == static_cast<int>(peers_.size())) {
+            display_->ShowMenu("已授权设备", FONT_AWESOME_ARROW_LEFT, "返回",
+                peers_.empty() ? "尚未授权浏览器" : "BOOT 返回 · PWR 翻页");
+            return;
         }
-        text += "PWR 换项  BOOT 确认\n长按 BOOT 返回";
-        display_->ShowMenu(text);
+        const auto& peer = peers_[peer_index_];
+        std::string detail = peer.id.substr(0,8) + (confirm_remove_ ? " · BOOT 确认删除" : " · BOOT 删除");
+        display_->ShowMenu(confirm_remove_ ? "删除授权？PWR 取消" : "已授权设备 · PWR 翻页",
+                           FONT_AWESOME_GEAR,peer.name.c_str(),detail);
+    }
+    bool PeerButton(bool confirm) {
+        if (peer_index_ < 0) return false;
+        if (!confirm && !confirm_remove_) {
+            peer_index_ = (peer_index_ + 1) % (peers_.size()+1);
+        } else if (!confirm) {
+            confirm_remove_=false;
+        } else if (peer_index_ == static_cast<int>(peers_.size())) {
+            peer_index_=-1; RenderMenu(); return true;
+        } else if (confirm_remove_) {
+            bool removed=RemoveSetupPeer(peers_[peer_index_].id);
+            peers_=SetupPeers();peer_index_=0;confirm_remove_=false;
+            if (!removed) display_->ShowNotification("删除失败，请重试");
+        } else {
+            confirm_remove_=true;
+        }
+        ShowPeers();
+        return true;
     }
 
     void ToggleMenu() {
@@ -154,11 +197,99 @@ private:
         } else {
             item_ = 0;
             menu_open_ = true;
+            display_->ShowVoiceHint("", 0);
             RenderMenu();
         }
     }
 
+    std::atomic<bool> wake_allowed_{true};
+    std::atomic<int> standby_minutes_{standby::default_minutes};
+    std::mutex standby_mutex_;
+    standby::Timer standby_timer_;
+    wifi_ps_type_t previous_wifi_ps_ = WIFI_PS_MIN_MODEM;
+    bool restore_wifi_ps_ = false;
+    static uint32_t NowMs() { return static_cast<uint32_t>(esp_timer_get_time() / 1000); }
+    enum class UpdateState { Closed, Checking, Confirm, Installing, Result };
+    std::atomic<UpdateState> update_{UpdateState::Closed};
+    pocket_update::Release release_;
+
+    void UpdateResult(const std::string& message) {
+        display_->ShowUpdatePage("检查更新\n\n" + message + "\n\n按 BOOT 或 PWR 返回");
+        update_ = UpdateState::Result;
+    }
+
+    void RunUpdate(bool install) {
+        if (!WifiStation::GetInstance().IsConnected()) { UpdateResult("请先连接 Wi-Fi"); return; }
+        if (install) {
+            if (Application::GetInstance().GetDeviceState() != kDeviceStateIdle || music_.IsBusy()) {
+                UpdateResult("请结束通话或暂停音乐后重试");
+                return;
+            }
+            auto error = pocket_update::Install(release_, [this](int percent) {
+                display_->ShowUpdatePage("正在安装 " + release_.version + "\n\n" +
+                    std::to_string(percent) + "%\n请保持供电");
+            });
+            if (!error.empty()) { UpdateResult(error); return; }
+            display_->ShowUpdatePage("更新完成\n\n正在重新启动");
+            vTaskDelay(pdMS_TO_TICKS(800));
+            esp_restart();
+        }
+        auto error = pocket_update::Check(release_);
+        if (!error.empty()) { UpdateResult(error); return; }
+        std::string current = esp_app_get_description()->version;
+        if (release_.version.empty()) { UpdateResult("已是最新版本 " + current); return; }
+        display_->ShowUpdatePage("发现新版本\n\n当前 " + current + "\n新版 " + release_.version +
+                                 "\n\n短按 BOOT 安装\n短按 PWR 取消");
+        update_ = UpdateState::Confirm;
+    }
+
+    void StartUpdate(bool install) {
+        update_ = install ? UpdateState::Installing : UpdateState::Checking;
+        display_->ShowUpdatePage(install ? "准备安装，请保持供电" : "正在检查新版本…");
+        if (xTaskCreate([](void* ctx) {
+                auto* self = static_cast<CustomBoard*>(ctx);
+                self->RunUpdate(self->update_ == UpdateState::Installing);
+                vTaskDelete(nullptr);
+            }, "pocket_ota", 12288, this, 3, nullptr) != pdPASS)
+            UpdateResult("内存不足，请稍后重试");
+    }
+
+    bool UpdateButton(bool confirm) {
+        auto state = update_.load();
+        if (state == UpdateState::Closed) return false;
+        if (state == UpdateState::Confirm && confirm) StartUpdate(true);
+        else if (state == UpdateState::Confirm || state == UpdateState::Result) {
+            update_ = UpdateState::Closed;
+            RenderMenu();
+        }
+        return true;
+    }
+
     void SelectItem() {
+        if (item_ == Update) { StartUpdate(false); return; }
+        if (item_ == Trusted) {
+            peers_ = SetupPeers(); peer_index_=0; confirm_remove_=false; ShowPeers(); return;
+        }
+        if (item_ == StandbyTimeout) {
+            standby_minutes_ = standby::Next(standby_minutes_);
+            Settings("omni_ui", true).SetInt("standby_min", standby_minutes_);
+            RenderMenu();
+            return;
+        }
+        if (item_ == WakeSetting) {
+            wake_allowed_ = !wake_allowed_;
+            Settings("omni_ui", true).SetInt("wake", wake_allowed_);
+            auto& app = Application::GetInstance();
+            app.Schedule([allowed = wake_allowed_.load()]() {
+                auto& app = Application::GetInstance();
+                auto& audio = app.GetAudioService();
+                audio.SetWakeWordAllowed(allowed);
+                if (allowed && (app.GetDeviceState() == kDeviceStateIdle || app.GetDeviceState() == kDeviceStateWifiConfiguring)) audio.EnableWakeWordDetection(true);
+            });
+            display_->RefreshHome();
+            RenderMenu();
+            return;
+        }
         if (item_ == VolumeDown || item_ == VolumeUp) {
             auto* codec = GetAudioCodec();
             codec->SetOutputVolume(std::clamp(codec->output_volume() + (item_ == VolumeUp ? 10 : -10), 0, 100));
@@ -168,21 +299,12 @@ private:
         ToggleMenu();
         switch (item_) {
             case Chat: {
-                if (network_page_ != NetworkPage::Hidden) {
-                    display_->ShowNotification("正在重连 Wi-Fi");
+                if (!WifiStation::GetInstance().IsConnected()) {
+                    display_->ShowVoiceHint("语音通话需要 Wi-Fi。可在菜单打开手机配网", 4500);
                     break;
-                }
-                if (Application::GetInstance().IsVoicePaused()) {
-                    Application::GetInstance().SetVoicePaused(false);
-                    break;
-                }
-                if (local_only_) {
-                    { Settings mode("omni_mode", true); mode.SetInt("offline", 0); }
-                    esp_restart();
                 }
                 auto& app = Application::GetInstance();
-                if (WifiStation::GetInstance().IsConnected()) app.SetVoicePaused(true);
-                else display_->ShowNotification("请先连接 Wi-Fi");
+                app.SetVoicePaused(!app.IsVoicePaused());
                 break;
             }
             case Play: RequestMusicFromButton(MusicAction::Toggle); break;
@@ -191,24 +313,23 @@ private:
             case Shuffle: RequestMusicFromButton(MusicAction::Shuffle); break;
             case Refresh: RequestMusicFromButton(MusicAction::Refresh); break;
             case InstallModel:
-                if (local_only_) {
-                    {
-                        Settings mode("omni_mode", true);
-                        mode.SetInt("install_model", 1);
-                        mode.SetInt("offline", 0);
-                    }
-                    esp_restart();
-                } else if (WifiStation::GetInstance().IsConnected()) {
+                if (WifiStation::GetInstance().IsConnected()) {
                     RequestMusicFromButton(MusicAction::InstallModel);
                 } else {
                     display_->ShowNotification("请连接 Wi-Fi 后再安装模型");
                 }
                 break;
             case OfflineVoice:
-                if (local_only_) RequestMusicFromButton(MusicAction::Listen);
-                else RebootToLocalMode();
+                RequestMusicFromButton(MusicAction::Listen);
                 break;
             case Help: BeginGuide(); break;
+            case LanSetup:
+                if (!WifiStation::GetInstance().IsConnected()) {
+                    display_->ShowNotification("请先连接家庭 Wi-Fi"); break;
+                }
+                { Settings mode("omni_mode",true); mode.SetInt("lan_setup",1); }
+                esp_restart();
+                break;
             case Phone: ResetWifiConfiguration(); break;
             default: break;
         }
@@ -221,6 +342,10 @@ private:
     }
 #else
     void StartNetwork() override {
+        int timeout = Settings("omni_ui").GetInt("standby_min", standby::default_minutes);
+        standby_minutes_ = standby::Valid(timeout) ? timeout : standby::default_minutes;
+        wake_allowed_ = Settings("omni_ui").GetInt("wake", 1);
+        Application::GetInstance().GetAudioService().SetWakeWordAllowed(wake_allowed_);
         if (!Settings("omni_ui").GetInt("guided", 0)) {
             guide_waiter_ = xTaskGetCurrentTaskHandle();
             BeginGuide();
@@ -228,20 +353,25 @@ private:
             Settings guide("omni_ui", true);
             guide.SetInt("guided", 1);
         }
-        int offline = Settings("omni_mode").GetInt("offline", 0);
-        local_only_ = offline == 1 && !wifi_config_mode_;
-        if (offline == 2) Settings("omni_mode", true).SetInt("offline", 0);
-        if (local_only_) {
-            Application::GetInstance().SetDeviceState(kDeviceStateWifiConfiguring);
-            display_->SetStatus("离线首页");
-            display_->SetChatMessage("system", "BOOT 说离线口令，PWR 播放或暂停\n长按 BOOT 打开主菜单");
-            vTaskSuspend(nullptr);
-        }
         if (!VoiceProfile::ApplyPendingWifi()) {
             WaitForSetupButton("网络设置读写失败。");
             return;
         }
+        if (!wifi_config_mode_ && SsidManager::GetInstance().GetSsidList().empty()) {
+            Application::GetInstance().SetDeviceState(kDeviceStateWifiConfiguring);
+            network_page_ = NetworkPage::Home;
+            display_->ShowDisconnectedHome(false);
+            Application::GetInstance().GetAudioService().EnableWakeWordDetection(true);
+            // Adding a network from phone setup restarts the normal boot path.
+            ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+            return;
+        }
         WifiBoard::StartNetwork();
+        if (Settings("omni_mode").GetInt("lan_setup",0)) {
+            { Settings mode("omni_mode",true); mode.SetInt("lan_setup",0); }
+            Application::GetInstance().SetDeviceState(kDeviceStateWifiConfiguring);
+            RunPhoneSetup(display_,true);
+        }
         if (Settings("omni_mode").GetInt("install_model", 0) && WifiStation::GetInstance().IsConnected()) {
             Settings("omni_mode", true).SetInt("install_model", 0);
             RequestMusicFromButton(MusicAction::InstallModel);
@@ -255,6 +385,7 @@ private:
     bool WaitForInitialWifi() override {
         if (!WifiStation::GetInstance().WaitForConnected(8000)) {
             Application::GetInstance().SetDeviceState(kDeviceStateWifiConfiguring);
+            Application::GetInstance().GetAudioService().EnableWakeWordDetection(true);
             WaitForWifiRecovery();
         }
         return true;
@@ -267,9 +398,8 @@ private:
         do {
             auto page = network_page_.load();
             if (page != rendered) {
-                display_->ShowNetworkPage(page == NetworkPage::Local
-                    ? "离线首页\n\nPWR 播放或暂停音乐\n双击 PWR 下一首\n长按 BOOT 打开菜单\n\n后台正在自动联网"
-                    : "Wi-Fi 未连接\n\n正在寻找已保存的网络\n\n短按 BOOT 返回首页\n短按 PWR 进入手机配网");
+                if (page == NetworkPage::Home) display_->ShowDisconnectedHome(true);
+                else display_->ShowNetworkPage("Wi-Fi 未连接\n\n正在寻找已保存的网络\n\n短按 BOOT 返回首页\n短按 PWR 进入手机配网");
                 rendered = page;
             }
         } while (!station.WaitForConnected(250));
@@ -280,7 +410,7 @@ private:
     void MonitorWifi() {
         for (;;) {
             if (!WifiStation::GetInstance().IsConnected()) WaitForWifiRecovery();
-            vTaskDelay(pdMS_TO_TICKS(250));
+            vTaskDelay(pdMS_TO_TICKS(1500));
         }
     }
 #endif
@@ -335,18 +465,18 @@ private:
 
     void InitializeButtons() { 
         boot_button_.OnClick([this]() {
+            if (UpdateButton(true) || ShowPhoneSetupIfActive(true) || PeerButton(true)) return;
+            if (!AcceptUserAction()) return;
             if (GuideButton(false)) return;
             if (display_->WakeScreen()) return;
             if (menu_open_) { SelectItem(); return; }
             auto expected = NetworkPage::Disconnected;
-            if (network_page_.compare_exchange_strong(expected, NetworkPage::Local)) return;
-            if (local_only_) { RequestMusicFromButton(MusicAction::Listen); return; }
-            if (expected == NetworkPage::Local) { ToggleMenu(); return; }
+            if (network_page_.compare_exchange_strong(expected, NetworkPage::Home)) return;
+            if (expected == NetworkPage::Home) { RequestMusicFromButton(MusicAction::Listen); return; }
             if (auto task = setup_waiter_.load()) {
                 xTaskNotifyGive(task);
                 return;
             }
-            if (ShowPhoneSetupIfActive()) return;
             auto& app = Application::GetInstance();
             if (app.GetDeviceState() == kDeviceStateStarting && !WifiStation::GetInstance().IsConnected()) {
                 ResetWifiConfiguration();
@@ -356,6 +486,8 @@ private:
         });
 
         pwr_button_.OnClick([this]() {
+            if (UpdateButton(false) || ShowPhoneSetupIfActive(false) || PeerButton(false)) return;
+            if (!AcceptUserAction()) return;
             if (GuideButton(true)) return;
             if (display_->WakeScreen()) return;
             if (menu_open_) { item_ = (item_ + 1) % ItemCount; RenderMenu(); }
@@ -363,38 +495,43 @@ private:
             else RequestMusicFromButton(MusicAction::Toggle);
         });
         pwr_button_.OnDoubleClick([this]() {
+            if (PhoneSetupActive()) return;
+            if (peer_index_ >= 0) return;
+            if (!AcceptUserAction()) return;
             if (guide_page_ >= 0) return;
             if (menu_open_) { item_ = (item_ + ItemCount - 1) % ItemCount; RenderMenu(); }
             else RequestMusicFromButton(MusicAction::Next);
         });
-        boot_button_.OnLongPress([this]() { if (!GuideButton(true)) ToggleMenu(); });
-        boot_button_.OnDoubleClick([this]() { if (guide_page_ < 0 && !menu_open_) RequestMusicFromButton(MusicAction::ChangeMode); });
+        boot_button_.OnLongPress([this]() {
+            if (PhoneSetupActive()) return;
+            if (!AcceptUserAction()) return;
+            if (peer_index_ >= 0) { peer_index_=-1; RenderMenu(); return; }
+            if (!GuideButton(true)) ToggleMenu(); });
+        boot_button_.OnDoubleClick([this]() {
+            if (PhoneSetupActive()) return;
+            if (peer_index_ >= 0) return;
+            if (!AcceptUserAction()) return;
+            if (guide_page_ < 0 && !menu_open_) RequestMusicFromButton(MusicAction::ChangeMode); });
 
-        boot_button_.OnMultipleClick([this]() { if (guide_page_ < 0 && !menu_open_) RequestMusicFromButton(MusicAction::Refresh); }, 3);
+        boot_button_.OnMultipleClick([this]() {
+            if (PhoneSetupActive()) return;
+            if (peer_index_ >= 0) return;
+            if (!AcceptUserAction()) return;
+            if (guide_page_ < 0 && !menu_open_) RequestMusicFromButton(MusicAction::Refresh); }, 3);
 
         pwr_button_.OnLongPress([this]() {
+            if (!AcceptUserAction()) return;
             if (!music_.RequestPowerOff()) {
                 Application::GetInstance().Schedule([this]() { PowerOff(); });
             }
         });
     }
 
-    void EnterLocalMode() {
-        auto& app = Application::GetInstance();
-        auto state = app.GetDeviceState();
-        if (!WifiStation::GetInstance().IsConnected() &&
-            (state == kDeviceStateActivating || state == kDeviceStateStarting || state == kDeviceStateWifiConfiguring)) {
-            RebootToLocalMode();
-            return;
-        }
-        app.SetVoicePaused(true);
-    }
-
     void InitializeTools() {
         auto& mcp_server = McpServer::GetInstance();
         mcp_server.AddTool("self.voice.enter_local_mode", "用户明确说返回首页、退出语音通话或结束语音服务时调用。关闭当前语音通话并回到首页，保留 Wi-Fi。", PropertyList(),
             [this](const PropertyList&) -> ReturnValue {
-                EnterLocalMode();
+                Application::GetInstance().SetVoicePaused(true);
                 return true;
             });
         mcp_server.AddTool("self.music.play_file", "用户点播歌曲时优先调用此工具，按歌名查找并播放存储卡上的 MP3。path 填用户说的歌名（文件名可省略扩展名），或包含扩展名的完整相对路径。",
@@ -453,9 +590,7 @@ private:
         music_hil::PowerOffReached();
         return;
 #endif
-        display_->CloseMenu();
-        GetDisplay()->SetChatMessage("system", "已关机");
-        vTaskDelay(pdMS_TO_TICKS(1000));
+        display_->ShowShutdownSaver();
         power_->POWEER_Audio_OFF();
         power_->POWEER_EPD_OFF();
         power_->VBAT_POWER_OFF();
@@ -489,8 +624,50 @@ public:
         InitializeTools();
     }
 
+    bool FirmwareUpdateActive() const override { return update_ != UpdateState::Closed; }
+
+    bool AcceptUserAction() override {
+        if (FirmwareUpdateActive()) return false;
+        std::lock_guard<std::mutex> lock(standby_mutex_);
+        return standby_timer_.Input(NowMs());
+    }
+
+    void CheckVoiceStandby() override {
+        auto& app = Application::GetInstance();
+        auto& audio = app.GetAudioService();
+        auto state = app.GetDeviceState();
+        bool home = state == kDeviceStateIdle ||
+            (state == kDeviceStateWifiConfiguring && network_page_ != NetworkPage::Hidden);
+        bool ready = !FirmwareUpdateActive() && home && guide_page_ < 0 && wake_allowed_ && audio.IsWakeWordRunning() &&
+            !audio.IsAudioProcessorRunning() && audio.IsIdle() && !music_.IsBusy();
+        std::lock_guard<std::mutex> lock(standby_mutex_);
+        auto now = NowMs();
+        if (!standby_timer_.Tick(now, standby_minutes_, ready)) return;
+        if (!display_->ShowVoiceStandby(true)) {
+            standby_timer_.Wake(now);
+            return;
+        }
+        restore_wifi_ps_ = WifiStation::GetInstance().IsConnected() &&
+            esp_wifi_get_ps(&previous_wifi_ps_) == ESP_OK && esp_wifi_set_ps(WIFI_PS_MAX_MODEM) == ESP_OK;
+    }
+
+    bool WakeFromVoiceStandby() override {
+        std::lock_guard<std::mutex> lock(standby_mutex_);
+        if (!standby_timer_.Asleep()) {
+            standby_timer_.Input(NowMs());
+            return false;
+        }
+        if (!display_->ShowVoiceStandby(false)) return true;
+        standby_timer_.Wake(NowMs());
+        if (restore_wifi_ps_) {
+            esp_wifi_set_ps(previous_wifi_ps_);
+            restore_wifi_ps_ = false;
+        }
+        return true;
+    }
+
     bool CanStartVoiceShortcut() override {
-        return !local_only_ && WifiStation::GetInstance().IsConnected();
+        return WifiStation::GetInstance().IsConnected();
     }
 
     virtual AudioCodec* GetAudioCodec() override {

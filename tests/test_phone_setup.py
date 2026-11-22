@@ -24,6 +24,21 @@ PROBE = """<script>
         await wait(() => !byId('retry').hidden);
         byId('retry').click();
         await wait(() => !byId('save').disabled);
+        check(byId('updateUrl').value==='https://device.test/manifest.json','Missing update source');
+        if(typeof characteristicMock!=='undefined'){
+            check(!byId('useSiteUpdates').hidden,'Hosted update action missing');
+            byId('useSiteUpdates').click();
+            await wait(()=>byId('updateStatus').textContent.includes('尚未部署'));
+            check(byId('updateUrl').value==='https://device.test/manifest.json','Missing release changed source');
+            byId('useSiteUpdates').click();
+            await wait(()=>byId('updateStatus').textContent.includes('已使用本站更新'));
+            check(byId('updateUrl').value==='https://site.test/pocket/ota/manifest.json','Wrong nested path');
+        }else{check(byId('useSiteUpdates').hidden,'Device-local page offered itself as OTA host')}
+        byId('updateUrl').value='https://updates.test/ota/manifest.json';byId('saveUpdateSource').click();
+        await wait(()=>byId('updateStatus').textContent==='更新地址已保存');
+        check(!byId('standby').hidden && byId('standbyMinutes').value === '5', 'Standby time missing');
+        byId('standbyMinutes').value='10';byId('saveStandby').click();
+        await wait(() => byId('standbyStatus').textContent === '待机时间已保存');
         check(byId('phrases').querySelector('input').value === '播放', 'Offline words missing');
         byId('songs').value = '晴天';
         byId('saveWords').click();
@@ -59,7 +74,9 @@ PROBE = """<script>
         byId('mode').dispatchEvent(new Event('change'));
         check(byId('custom').hidden, 'Custom settings still visible');
         check(!byId('xiaozhiHelp').hidden && byId('xiaozhiHelp').querySelector('a').href === 'https://xiaozhi.me/console/', 'Official console link missing');
-        await wait(() => !byId('photo').disabled);
+        await wait(() => !byId('photo').disabled && !byId('photoOff').disabled);
+        const standbyDefault=byId('preview').toDataURL(),shutdownDefault=byId('previewOff').toDataURL();
+        check(standbyDefault!==shutdownDefault,'Default ducks must differ');
         const pic=document.createElement('canvas');pic.width=pic.height=2;
         const ctx=pic.getContext('2d');ctx.fillStyle='black';ctx.fillRect(0,0,2,2);
         const blob=await new Promise(resolve=>pic.toBlob(resolve));
@@ -67,7 +84,13 @@ PROBE = """<script>
         byId('photo').files=files.files;byId('photo').dispatchEvent(new Event('change'));
         await wait(()=>!byId('applyImage').disabled);byId('applyImage').click();
         await wait(()=>byId('imageStatus').textContent==='屏保已保存');
-        byId('clearImage').click();await wait(()=>byId('preview').hidden);
+        check(byId('previewOff').toDataURL()===shutdownDefault,'Standby upload changed shutdown');
+        byId('photoOff').files=files.files;byId('photoOff').dispatchEvent(new Event('change'));
+        await wait(()=>!byId('applyImageOff').disabled);byId('applyImageOff').click();
+        await wait(()=>byId('imageStatusOff').textContent==='屏保已保存');
+        byId('clearImage').click();await wait(()=>byId('preview').toDataURL()===standbyDefault);
+        check(byId('previewOff').toDataURL()!==shutdownDefault,'Standby reset changed shutdown');
+        byId('clearImageOff').click();await wait(()=>byId('previewOff').toDataURL()===shutdownDefault);
         byId('save').click();
         await wait(() => byId('status').textContent === '已保存');
         check(byId('save').disabled, 'Duplicate save possible during reboot');
@@ -83,20 +106,27 @@ PROBE = """<script>
 # forwards these requests to the fixture server.
 BLUETOOTH = """<script>
 const peripheralFetch = window.fetch.bind(window);
+let releaseAvailable=false;
 window.fetch = (path, options) => {
+    if(path==='https://site.test/pocket/ota/manifest.json'){
+        if(!releaseAvailable){releaseAvailable=true;return Promise.resolve(new Response('',{status:404}))}
+        return Promise.resolve(Response.json({board:'waveshare-s3-epaper-1.54-v2',version:'2.0.5',sha256:'a'.repeat(64),signature:'abcd'}));
+    }
     if(path !== '/result') throw Error('Hosted UI attempted an HTTP device operation');
     return peripheralFetch(path,options);
 };
-let route, upload, response, status, offset;
-const endpoints=['/profile','/networks','/saver','/profile','/saver','/exit'];
+let route, upload, response, status, offset, key='';
+const endpoints=['/profile','/networks','/saver','/profile','/saver','/exit','/shutdown-saver','/shutdown-saver','/access'];
 const characteristicMock={
     async writeValueWithResponse(frame){
         if(frame.length>20)throw Error('Exceeded ATT MTU');
         switch(frame[0]){
+        case 4: key=Array.from(frame.slice(1),n=>n.toString(16).padStart(2,"0")).join("");break;
         case 0: route=frame[1];upload=[];response=[];status=offset=0;break;
         case 1: upload.push(...frame.slice(1));break;
         case 2: {
-            const options=route<3?{}:{method:'POST',body:new Uint8Array(upload)};
+            const options=(route<3||route===6)?{}:{method:'POST',body:new Uint8Array(upload)};
+            options.headers={"X-Pocket-Key":key};
             const r=await peripheralFetch(endpoints[route],options);
             status=r.status;response=new Uint8Array(await r.arrayBuffer());break;
         }
@@ -110,7 +140,7 @@ const characteristicMock={
     }
 };
 Object.defineProperty(navigator,'bluetooth',{value:{requestDevice:async()=>({
-    name:'Omni-test',addEventListener(){},
+    name:'Omni-test',id:'test-unit',addEventListener(){},
     gatt:{connect:async()=>({getPrimaryService:async()=>({getCharacteristic:async()=>characteristicMock})})}
 })}});
 </script>"""
@@ -123,14 +153,35 @@ class PhoneSetup(unittest.TestCase):
     def test_bluetooth_setup(self):
         self.exercise_page(bluetooth=True)
 
-    def exercise_page(self, bluetooth):
+    def test_lan_authorization(self):
+        self.exercise_page(bluetooth=False,lan=True)
+
+    def exercise_page(self, bluetooth, lan=False):
         page = PAGE.read_text()
         if bluetooth:
+            page = page.replace('const sitePageUrl=new URL(location.href)', "const sitePageUrl=new URL('https://site.test/pocket/index.html?test=1')")
             page = page.replace('<script>', BLUETOOTH + '<script>', 1)
             page = page.replace('</html>', "<script>document.getElementById('connect').click()</script></html>")
+        elif lan:
+            page = page.replace('<head>', "<head><meta name='quack-transport' content='lan'><meta name='quack-unit' content='test'>")
         else:
             page = page.replace("location.hostname === '192.168.4.1'", "location.hostname === '127.0.0.1'")
+        if bluetooth or lan:
+            page = page.replace("</html>", """<script>
+            const tick=setInterval(()=>{
+              if(document.getElementById('authStatus').textContent.includes('填写名称')){
+                clearInterval(tick);
+                document.getElementById('browserName').value='测试手机';
+                document.getElementById('requestAccess').click();
+              }
+            },20);
+            </script></html>""")
+        authorized = set()
+        waiting = set()
         posts, results, bitmaps = [], [], []
+        slots = {path: (PAGE.parents[1] / "branding" / name).read_bytes().split(b"200 200\n", 1)[1]
+                 for path, name in [("/saver", "duck-listening.pbm"), ("/shutdown-saver", "duck-sleeping.pbm")]}
+        saved_images = {}
         networks = ["home"]
         finished = threading.Event()
 
@@ -145,19 +196,21 @@ class PhoneSetup(unittest.TestCase):
                 self.send_response(status)
                 self.send_header("Content-Type", content_type + "; charset=utf-8")
                 self.end_headers()
-                self.wfile.write(body.encode())
+                self.wfile.write(body if isinstance(body, bytes) else body.encode())
 
             def do_GET(self):
                 if self.path == "/":
                     self.reply(200, "text/html", page.replace("</html>", PROBE + "</html>"))
-                elif self.path == "/saver":
-                    self.reply(204, "application/octet-stream", "")
+                elif (bluetooth or lan) and self.headers.get("X-Pocket-Key") not in authorized:
+                    self.reply(403,"text/plain","unauthorized")
+                elif self.path in slots:
+                    self.reply(200, "application/octet-stream", saved_images.get(self.path) or slots[self.path])
                 elif self.path == "/networks":
                     Handler.scans += 1
                     self.reply(503 if Handler.scans == 1 else 200, "application/json", json.dumps(["客厅 & Wi-Fi"]))
                 elif self.path == "/profile":
                     Handler.reads += 1
-                    profile = dict(url="wss://saved.test/device", has_token=True, has_wifi=True, model="chat", saved_wifi=networks,
+                    profile = dict(update_url="https://device.test/manifest.json", standby_minutes=5, url="wss://saved.test/device", has_token=True, has_wifi=True, model="chat", saved_wifi=networks,
                                    offline_words="播放\n暂停\n下一首\n上一首\n加音量\n降音量")
                     profile["offline_words"] = "播放\n暂停\n下一首\n上一首\n加音量\n降音量"
                     self.reply(503 if Handler.reads == 1 else 200, "application/json", json.dumps(profile))
@@ -166,9 +219,29 @@ class PhoneSetup(unittest.TestCase):
 
             def do_POST(self):
                 data = self.rfile.read(int(self.headers["Content-Length"]))
-                if self.path == "/saver":
-                    bitmaps.append(data)
-                    self.reply(200, "text/plain", "屏保已保存" if data else "屏保已关闭")
+                key = self.headers.get("X-Pocket-Key","")
+                if self.path == "/access":
+                    if len(key)!=32:
+                        self.reply(400,"text/plain","missing key")
+                    elif key in authorized:
+                        self.reply(200,"text/plain","authorized")
+                    elif data == "测试手机".encode():
+                        waiting.add(key)
+                        self.reply(202,"text/plain","123456")
+                    elif key in waiting:
+                        waiting.remove(key)
+                        authorized.add(key)
+                        self.reply(200,"text/plain","approved")
+                    else:
+                        self.reply(403,"text/plain","unknown")
+                    return
+                if self.path!="/result" and (bluetooth or lan) and key not in authorized:
+                    self.reply(403,"text/plain","unauthorized")
+                    return
+                if self.path in slots:
+                    saved_images[self.path] = data
+                    bitmaps.append((self.path, data))
+                    self.reply(200, "text/plain", "屏保已保存" if data else "已恢复默认小鸭")
                     return
                 body = data.decode()
                 if self.path == "/result":
@@ -177,6 +250,13 @@ class PhoneSetup(unittest.TestCase):
                     finished.set()
                 elif self.path == "/profile":
                     payload = json.loads(body)
+                    if payload.get("action") == "update_source" and payload.get("url") in (
+                            "https://updates.test/ota/manifest.json", "https://site.test/pocket/ota/manifest.json"):
+                        self.reply(200, "text/plain", "更新地址已保存")
+                        return
+                    if payload == {"action": "standby", "minutes": 10}:
+                        self.reply(200, "text/plain", "待机时间已保存")
+                        return
                     if payload.get("action") == "offline_words":
                         if payload.get("words") == "播放\n暂停\n下一首\n上一首\n加音量\n降音量\n晴天":
                             self.reply(200, "text/plain", "离线口令已保存")
@@ -218,7 +298,8 @@ class PhoneSetup(unittest.TestCase):
                 server.shutdown()
                 thread.join()
         self.assertEqual(results, ["PASS"])
-        self.assertEqual(bitmaps, [bytes([255]) * 5000, b""])
+        self.assertEqual(bitmaps, [("/saver", bytes([255]) * 5000), ("/shutdown-saver", bytes([255]) * 5000),
+                                   ("/saver", b""), ("/shutdown-saver", b"")])
         self.assertEqual(posts[0]["token"], "")
         self.assertEqual(posts[0]["url"], "wss://saved.test/device")
         self.assertEqual(posts[1], dict(mode="default", ssid="客厅 & Wi-Fi", password=""))

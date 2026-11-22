@@ -13,6 +13,7 @@ class MusicPlayer {
 public:
     bool Start(std::function<void()> power_off);
     bool RequestPowerOff();
+    bool IsBusy() const { return commands_ && (busy_ || powering_off_ || uxQueueMessagesWaiting(commands_)); }
     bool Request(MusicAction action, const char *path = "");
 
 private:
@@ -21,6 +22,7 @@ private:
         char path[MUSIC_PATH_CAPACITY];
     };
     QueueHandle_t commands_ = nullptr;
+    std::atomic<bool> busy_{true};
     std::atomic<bool> powering_off_{false};
     std::function<void()> power_off_;
     void Run();

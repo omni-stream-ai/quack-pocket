@@ -1,5 +1,5 @@
 #pragma once
 class CustomLcdDisplay;
-void RebootToLocalMode();
-void RunPhoneSetup(CustomLcdDisplay* display);
-bool ShowPhoneSetupIfActive();
+void RunPhoneSetup(CustomLcdDisplay* display, bool lan = false);
+bool PhoneSetupActive();
+bool ShowPhoneSetupIfActive(bool approve = true);

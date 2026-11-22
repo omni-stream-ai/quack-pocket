@@ -45,6 +45,10 @@ public:
     virtual Display* GetDisplay();
     virtual Camera* GetCamera();
     virtual NetworkInterface* GetNetwork() = 0;
+    virtual void CheckVoiceStandby() {}
+    virtual bool WakeFromVoiceStandby() { return false; }
+    virtual bool FirmwareUpdateActive() const { return false; }
+    virtual bool AcceptUserAction() { return true; }
     virtual bool CanStartVoiceShortcut() { return true; }
     virtual void StartNetwork() = 0;
     virtual const char* GetNetworkStateIcon() = 0;

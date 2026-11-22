@@ -24,7 +24,9 @@
 
 namespace {
 void Show(const std::string& message) {
-    Board::GetInstance().GetDisplay()->SetChatMessage("system", message.c_str());
+    auto* display = Board::GetInstance().GetDisplay();
+    display->SetChatMessage("system", message.c_str());
+    display->ShowVoiceHint(message.c_str(), 3500);
 }
 
 uint32_t NextTrack(uint32_t current, uint32_t count, bool shuffle) {
@@ -126,8 +128,10 @@ void MusicPlayer::Run() {
             command.action = MusicAction::Prepare;
             prepare_on_boot = false;
         } else {
+            busy_ = playing;
             received = xQueueReceive(commands_, &command, playing ? 0 : portMAX_DELAY) == pdTRUE;
         }
+        busy_ = true;
         const bool background = received && command.action == MusicAction::Prepare;
         if (powering_off_.load()) {
             release();

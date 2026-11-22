@@ -31,18 +31,24 @@ public:
     ~CustomLcdDisplay();
 
     static constexpr size_t saver_bytes = 200 * 200 / 8;
-    bool SaveSaver(const uint8_t* bitmap);
-    bool ReadSaver(uint8_t* bitmap);
+    enum class Saver { Standby, Shutdown };
+    bool SaveSaver(Saver slot, const uint8_t* bitmap);
+    bool ReadSaver(Saver slot, uint8_t* bitmap);
+    void ShowShutdownSaver();
     bool WakeScreen();
     void SetStatus(const char* status) override;
     void ShowVoiceHint(const char* text, int duration_ms) override;
+    void ShowUpdatePage(const std::string& text);
     void ShowGuide(int page);
-    void ShowMenu(const std::string& text);
+    bool ShowVoiceStandby(bool visible);
+    void ShowMenu(const std::string& header, const char* icon, const char* title, const std::string& detail);
+    void RefreshHome();
+    void ShowDisconnectedHome(bool reconnecting);
     void CloseMenu();
     lv_obj_t* home_page_ = nullptr;
     void ShowHome(bool visible) override;
     void ShowNetworkPage(const char* text);
-    void ShowSetupCode(const char* ssid, const char* password, unsigned pairing_code);
+    void ShowSetupCode(const char* ssid, const char* password, unsigned pairing_code, const std::string& lan_url, const std::string& fingerprint, const std::string& address);
     void SetChatMessage(const char* role, const char* content) override;
     void EPD_Init();    /* 墨水屏初始化 */
     void EPD_Clear();   /* 清空屏幕 */
@@ -55,11 +61,16 @@ public:
     bool EPD_DrawColorPixel(uint16_t x, uint16_t y,uint8_t color);
     
 private:
+    lv_obj_t* standby_page_ = nullptr;
     lv_obj_t* voice_hint_ = nullptr;
     lv_timer_t* voice_hint_timer_ = nullptr;
+    bool network_home_ = false;
+    void RenderHomeText(lv_obj_t* page, const char* greeting, const char* action);
+    void RenderConnectedHome();
     void RenderMenuLocked(const std::string& text);
     void ResetSaver();
     void UpdateSaver();
+    bool shutdown_frame_ = false;
     bool saver_available_ = false, saver_allowed_ = false;
     uint32_t last_activity_ = 0;
     lv_obj_t* saver_layer_ = nullptr;

@@ -430,12 +430,17 @@ void Application::Start() {
     esp_timer_start_periodic(clock_timer_handle_, 1000000);
 
     /* Wait for the network to be ready */
+    // The wake word lives in flash and is usable even when the first network
+    // connection is pending. Asset downloads still require a connection.
+    bool deferred_assets = !Settings("assets").GetString("download_url").empty();
+    if (!deferred_assets) CheckAssetsVersion();
+    Ota().MarkCurrentVersionValid(); // Local startup succeeded, including on devices without saved Wi-Fi.
     board.StartNetwork();
 
     // Update the status bar immediately to show the network state
     display->UpdateStatusBar(true);
 
-    CheckAssetsVersion();
+    if (deferred_assets) CheckAssetsVersion();
 #if CONFIG_BOARD_TYPE_WAVESHARE_S3_ePaper_1_54
     waiting_for_voice_entry_ = true;
     voice_paused_ = true;
@@ -675,7 +680,11 @@ void Application::MainEventLoop() {
         }
 
         if (bits & MAIN_EVENT_WAKE_WORD_DETECTED) {
-            OnWakeWordDetected();
+            if (Board::GetInstance().FirmwareUpdateActive() || Board::GetInstance().WakeFromVoiceStandby()) {
+                audio_service_.EnableWakeWordDetection(true);
+            } else {
+                OnWakeWordDetected();
+            }
         }
 
         if (bits & MAIN_EVENT_VAD_CHANGE) {
@@ -695,6 +704,7 @@ void Application::MainEventLoop() {
         }
 
         if (bits & MAIN_EVENT_CLOCK_TICK) {
+            Board::GetInstance().CheckVoiceStandby();
             clock_ticks_++;
             auto display = Board::GetInstance().GetDisplay();
             display->UpdateStatusBar();
@@ -712,6 +722,11 @@ void Application::MainEventLoop() {
 void Application::OnWakeWordDetected(bool acknowledge) {
 #if CONFIG_BOARD_TYPE_WAVESHARE_S3_ePaper_1_54
     auto& board = Board::GetInstance();
+    if (acknowledge && device_state_ == kDeviceStateWifiConfiguring && !board.CanStartVoiceShortcut()) {
+        board.GetDisplay()->ShowVoiceHint("我在。联网后可以语音通话", 3000);
+        audio_service_.EnableWakeWordDetection(true);
+        return;
+    }
     if (acknowledge && (voice_paused_ || device_state_ == kDeviceStateIdle)) {
         extern const char wake_ack_start[] asm("_binary_wake_ack_ogg_start");
         extern const char wake_ack_end[] asm("_binary_wake_ack_ogg_end");
@@ -839,7 +854,7 @@ void Application::SetDeviceState(DeviceState state) {
                 audio_service_.EnableWakeWordDetection(false);
             }
 #if CONFIG_BOARD_TYPE_WAVESHARE_S3_ePaper_1_54
-            if (audio_service_.IsAudioProcessorRunning()) display->ShowVoiceHint("请说", 2500);
+            if (audio_service_.IsAudioProcessorRunning()) display->ShowVoiceHint("嘎，我在听。请说！", 2500);
 #endif
             break;
         case kDeviceStateSpeaking:

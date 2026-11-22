@@ -187,6 +187,15 @@ bool AudioService::ReadAudioData(std::vector<int16_t>& data, int sample_rate, in
     return true;
 }
 
+std::unique_lock<std::mutex> AudioService::AcquireCommandMicrophone() {
+    // The higher-priority wake task must yield between frames to the player.
+    command_waiting_ = true;
+    std::unique_lock<std::mutex> lock(microphone_mutex_);
+    command_waiting_ = false;
+    microphone_cv_.notify_one();
+    return lock;
+}
+
 void AudioService::AudioInputTask() {
     while (true) {
         EventBits_t bits = xEventGroupWaitBits(event_group_, AS_EVENT_AUDIO_TESTING_RUNNING |
@@ -196,6 +205,12 @@ void AudioService::AudioInputTask() {
         if (service_stopped_) {
             break;
         }
+        std::unique_lock<std::mutex> input_lock(microphone_mutex_);
+        if (command_waiting_) microphone_cv_.wait(input_lock, [this] { return !command_waiting_; });
+        if (service_stopped_) break;
+        // A manual command can own the microphone across several frames.
+        bits = xEventGroupGetBits(event_group_);
+        if (!(bits & (AS_EVENT_AUDIO_TESTING_RUNNING | AS_EVENT_WAKE_WORD_RUNNING | AS_EVENT_AUDIO_PROCESSOR_RUNNING))) continue;
         if (audio_input_need_warmup_) {
             audio_input_need_warmup_ = false;
             vTaskDelay(pdMS_TO_TICKS(120));
@@ -466,7 +481,13 @@ std::unique_ptr<AudioStreamPacket> AudioService::PopWakeWordPacket() {
     return nullptr;
 }
 
+void AudioService::SetWakeWordAllowed(bool allowed) {
+    wake_allowed_ = allowed;
+    if (!allowed && wake_word_initialized_) EnableWakeWordDetection(false);
+}
+
 void AudioService::EnableWakeWordDetection(bool enable) {
+    if (enable && !wake_allowed_) return;
     if (!wake_word_) {
         return;
     }
@@ -655,7 +676,7 @@ void AudioService::CheckAndUpdateAudioPowerState() {
     if (input_elapsed > AUDIO_POWER_TIMEOUT_MS && codec_->input_enabled()) {
         codec_->EnableInput(false);
     }
-    if (output_elapsed > AUDIO_POWER_TIMEOUT_MS && codec_->output_enabled()) {
+    if (output_elapsed > AUDIO_OUTPUT_POWER_TIMEOUT_MS && codec_->output_enabled()) {
         codec_->EnableOutput(false);
     }
     if (!codec_->input_enabled() && !codec_->output_enabled()) {

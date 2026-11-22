@@ -559,6 +559,10 @@ void McpServer::DoToolCall(int id, const std::string& tool_name, const cJSON* to
     auto& app = Application::GetInstance();
     app.Schedule([this, id, tool_iter, arguments = std::move(arguments)]() {
         try {
+            if (!Board::GetInstance().AcceptUserAction()) {
+                ReplyError(id, "Device in voice standby");
+                return;
+            }
             ReplyResult(id, (*tool_iter)->Call(arguments));
         } catch (const std::exception& e) {
             ESP_LOGE(TAG, "tools/call: %s", e.what());

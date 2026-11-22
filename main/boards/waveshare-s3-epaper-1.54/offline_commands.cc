@@ -20,9 +20,14 @@
 #include <nvs.h>
 #include <mbedtls/sha256.h>
 
-// ESP-SR 2.1.5 exposes this loader selector in model_path.c. Only use it
-// during dedicated offline boot, before any flash-backed wake models exist.
-extern "C" void set_model_base_path(const char* path);
+// MultiNet reads its model directory during create(). Only this task should
+// resolve files on the SD card. WakeNet keeps its flash-backed model list.
+static thread_local bool loading_music_model = false;
+extern "C" char* __real_get_model_base_path();
+extern "C" char* __wrap_get_model_base_path() {
+    static char music_model_dir[] = MUSIC_SD_ROOT "/omni-models";
+    return loading_music_model ? music_model_dir : __real_get_model_base_path();
+}
 
 namespace {
 constexpr char defaults[] = "播放\n暂停\n下一首\n上一首\n加音量\n降音量";
@@ -86,7 +91,7 @@ bool Parse(const std::string& text, Words& words) {
 }
 
 void Message(const char* text) {
-    Board::GetInstance().GetDisplay()->SetChatMessage("system", text);
+    Board::GetInstance().GetDisplay()->ShowVoiceHint(text, 6500);
 }
 
 struct ModelFile {
@@ -207,7 +212,7 @@ void InstallOfflineModel(const std::function<bool()>& cancelled) {
         if (cancelled()) return;
         if (error) { Message(error); return; }
     }
-    Message("模型已就绪，可从主菜单进入离线语音控制");
+    Message("模型已就绪，菜单选“说一句音乐口令”");
 }
 
 std::string ReadOfflineWords() {
@@ -242,52 +247,53 @@ bool SaveOfflineWords(const std::string& text, std::string& error) {
 
 OfflineCommand ListenOffline(const std::function<bool()>& cancelled) {
     // The player owns the SD mount and serializes listening with decoding.
-    static const esp_mn_iface_t* engine = nullptr;
-    static model_iface_data_t* model = nullptr;
-    static Words words;
+    auto& audio = Application::GetInstance().GetAudioService();
+    if (audio.IsAudioProcessorRunning()) {
+        Message("请先结束通话，再说音乐口令");
+        return {};
+    }
+    Message("正在读取 SD 卡语音模型");
+    if (!CheckModel(cancelled)) {
+        if (!cancelled()) Message("请从主菜单选择「安装离线模型」");
+        return {};
+    }
+    const auto configured = ReadOfflineWords();
+    Words words;
+    if (!Parse(configured, words)) {
+        Message("请在手机设置中检查离线口令");
+        return {};
+    }
+    static char name[] = "mn7_cn";
+    auto* engine = esp_mn_handle_from_name(name);
+    loading_music_model = true;
+    auto* model = engine ? engine->create(name, 5000) : nullptr;
+    loading_music_model = false;
     if (!model) {
-        Message("正在读取 SD 卡语音模型");
-        if (!CheckModel(cancelled)) {
-            if (!cancelled()) Message("请从主菜单选择「安装离线模型」");
-            return {};
-        }
-        if (!Parse(ReadOfflineWords(), words)) {
-            words.clear();
-            Message("请在手机设置中检查离线口令");
-            return {};
-        }
-        static char name[] = "mn7_cn";
-        set_model_base_path(root);
-        engine = esp_mn_handle_from_name(name);
-        model = engine ? engine->create(name, 5000) : nullptr;
-        if (!model) {
-            words.clear();
-            Message("语音模型加载失败");
-            return {};
-        }
-        esp_mn_commands_clear();
-        bool valid = true;
-        for (size_t i = 0; i < words.size(); ++i) {
-            if (esp_mn_commands_add(i + 1, words[i].phrase.c_str()) != ESP_OK) {
-                valid = false;
-                break;
-            }
-        }
-        if (!valid || esp_mn_commands_update()) {
-            engine->destroy(model);
-            model = nullptr;
-            words.clear();
+        Message("语音模型加载失败");
+        return {};
+    }
+    // Return PSRAM to the online voice service after this single command.
+    std::unique_ptr<model_iface_data_t, decltype(engine->destroy)> release(model, engine->destroy);
+    esp_mn_commands_clear();
+    for (size_t i = 0; i < words.size(); ++i) {
+        if (esp_mn_commands_add(i + 1, words[i].phrase.c_str()) != ESP_OK) {
             Message("模型无法识别词表，请检查口令拼音");
             return {};
         }
     }
+    if (esp_mn_commands_update()) {
+        Message("模型无法识别词表，请检查口令拼音");
+        return {};
+    }
+    auto input_lock = audio.AcquireCommandMicrophone();
+    if (cancelled() || audio.IsAudioProcessorRunning()) return {};
+    const auto listen_prompt = "请说离线口令，例如“" + configured.substr(0, configured.find('\n')) + "”";
     engine->clean(model);
-    Message("请说离线口令");
-    auto& audio = Application::GetInstance().GetAudioService();
+    Message(listen_prompt.c_str());
     auto samples = engine->get_samp_chunksize(model);
     std::vector<int16_t> frame;
     auto deadline = esp_timer_get_time() + 5000000;
-    while (!cancelled() && esp_timer_get_time() < deadline) {
+    while (!cancelled() && !audio.IsAudioProcessorRunning() && esp_timer_get_time() < deadline) {
         if (!audio.ReadAudioData(frame, 16000, samples) || frame.size() != static_cast<size_t>(samples)) break;
         if (engine->detect(model, frame.data()) == ESP_MN_STATE_DETECTED) {
             auto result = engine->get_results(model);
@@ -295,6 +301,6 @@ OfflineCommand ListenOffline(const std::function<bool()>& cancelled) {
             if (id >= 0 && static_cast<size_t>(id) < words.size()) return {id, words[id].song};
         }
     }
-    if (!cancelled()) Message("没有听清，请再按 BOOT");
+    if (!cancelled()) Message("没有听清，请再试一次");
     return {};
 }

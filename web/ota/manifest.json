@@ -1,0 +1,7 @@
+{
+  "board": "waveshare-s3-epaper-1.54-v2",
+  "version": "2.0.6",
+  "size": 3341024,
+  "sha256": "c125aeff76daa1a6bfa021eeb8ba338e3cf92288b8ae92a179bdfc41111131c8",
+  "signature": "30450221009ffb84c294a497c487733aa5c9d490edf6219aacace2d95d0350b2b4d20c3f1b0220124919161e5b294b7c0af55fca5c06ad5e05847f05c98a12f6c3da39734c10d4"
+}

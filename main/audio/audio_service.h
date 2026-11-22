@@ -2,6 +2,7 @@
 #define AUDIO_SERVICE_H
 
 #include <memory>
+#include <atomic>
 #include <deque>
 #include <condition_variable>
 #include <chrono>
@@ -44,6 +45,7 @@
 #define MAX_TIMESTAMPS_IN_QUEUE 3
 
 #define AUDIO_POWER_TIMEOUT_MS 15000
+#define AUDIO_OUTPUT_POWER_TIMEOUT_MS 3000
 #define AUDIO_POWER_CHECK_INTERVAL_MS 1000
 
 
@@ -96,6 +98,8 @@ public:
     bool IsAudioProcessorRunning() const { return xEventGroupGetBits(event_group_) & AS_EVENT_AUDIO_PROCESSOR_RUNNING; }
     bool IsAfeWakeWord();
 
+    std::unique_lock<std::mutex> AcquireCommandMicrophone();
+    void SetWakeWordAllowed(bool allowed);
     void EnableWakeWordDetection(bool enable);
     void EnableVoiceProcessing(bool enable);
     void EnableAudioTesting(bool enable);
@@ -112,6 +116,10 @@ public:
     void SetModelsList(srmodel_list_t* models_list);
 
 private:
+    std::mutex microphone_mutex_;
+    std::condition_variable microphone_cv_;
+    std::atomic<bool> command_waiting_{false};
+    std::atomic<bool> wake_allowed_{true};
     AudioCodec* codec_ = nullptr;
     AudioServiceCallbacks callbacks_;
     std::unique_ptr<AudioProcessor> audio_processor_;
