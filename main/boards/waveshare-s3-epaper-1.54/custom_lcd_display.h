@@ -69,11 +69,18 @@ private:
     lv_obj_t* voice_hint_ = nullptr;
     lv_timer_t* voice_hint_timer_ = nullptr;
     bool network_home_ = false;
+    bool network_connecting_ = false;
     void RenderHomeText(lv_obj_t* page, const char* greeting, const char* action);
     void RenderConnectedHome();
     void RenderMenuLocked(const std::string& text);
     void ResetSaver();
     void UpdateSaver();
+    // The hardware test image uses its own startup screen.
+#ifdef OMNI_MUSIC_HIL
+    bool awaiting_home_ = false;
+#else
+    bool awaiting_home_ = true;
+#endif
     bool shutdown_frame_ = false;
     bool saver_available_ = false, saver_allowed_ = false;
     uint32_t last_activity_ = 0;

@@ -58,8 +58,7 @@ private:
     adc_oneshot_unit_handle_t battery_adc_ = nullptr;
     adc_cali_handle_t battery_cali_ = nullptr;
     std::atomic<bool> low_battery_{false};
-    enum class NetworkPage { Hidden, Disconnected, Home };
-    std::atomic<NetworkPage> network_page_{NetworkPage::Hidden};
+    std::atomic<bool> offline_home_{false};
 
     std::atomic<bool> menu_open_{false};
     size_t group_ = 0;
@@ -766,6 +765,12 @@ private:
         music_hil::Run(music_);
     }
 #else
+    void ShowStartupScreen() override {
+        bool configured = Settings("omni_ui").GetInt("wifi_on", 1) &&
+                          !SsidManager::GetInstance().GetSsidList().empty();
+        display_->ShowDisconnectedHome(configured);
+    }
+
     void StartNetwork() override {
         InitializeBackgroundManagement();
         InitializeSetupBluetooth(display_);
@@ -789,12 +794,17 @@ private:
         if (!wifi_config_mode_ && (!wifi_enabled || SsidManager::GetInstance().GetSsidList().empty())) {
             if (wifi_enabled) EnableOfflineSetupScan();
             Application::GetInstance().SetDeviceState(kDeviceStateWifiConfiguring);
-            network_page_ = NetworkPage::Home;
+            offline_home_ = true;
             display_->ShowDisconnectedHome(false);
             Application::GetInstance().GetAudioService().EnableWakeWordDetection(true);
             // Adding a network from phone setup restarts the normal boot path.
             ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
             return;
+        }
+        if (wifi_config_mode_) display_->ShowNetworkPage(nullptr);
+        else {
+            offline_home_ = true;
+            display_->ShowDisconnectedHome(true);
         }
         WifiBoard::StartNetwork();
         esp_sntp_config_t clock_config = ESP_NETIF_SNTP_DEFAULT_CONFIG("pool.ntp.org");
@@ -824,26 +834,25 @@ private:
         if (!WifiStation::GetInstance().WaitForConnected(8000)) {
             Application::GetInstance().SetDeviceState(kDeviceStateWifiConfiguring);
             Application::GetInstance().GetAudioService().EnableWakeWordDetection(true);
-            WaitForWifiRecovery();
+            WaitForWifiRecovery(true);
         }
+        offline_home_ = false;
+        if (Settings("assets").GetString("download_url").empty()) display_->ShowHome(true);
+        display_->ShowNetworkPage(nullptr);
         return true;
     }
 
-    void WaitForWifiRecovery() {
+    void WaitForWifiRecovery(bool initial = false) {
         auto& station = WifiStation::GetInstance();
-        network_page_ = NetworkPage::Disconnected;
-        NetworkPage rendered = NetworkPage::Hidden;
+        offline_home_ = true;
+        display_->ShowDisconnectedHome(true);
         do {
             if (xTaskGetCurrentTaskHandle() == wifi_worker_.load()) ProcessManualUpdate();
-            auto page = network_page_.load();
-            if (page != rendered) {
-                if (page == NetworkPage::Home) display_->ShowDisconnectedHome(true);
-                else display_->ShowNetworkPage("Wi-Fi 未连接\n\n正在寻找已保存的网络\n\n短按确认键 返回首页\n短按电源键 进入手机配网");
-                rendered = page;
-            }
         } while (!station.WaitForConnected(250));
-        network_page_ = NetworkPage::Hidden;
-        display_->ShowNetworkPage(nullptr);
+        if (!initial) {
+            offline_home_ = false;
+            display_->ShowNetworkPage(nullptr);
+        }
     }
 
     // The Wi-Fi monitor schedules probes; only a manual check owns the update UI.
@@ -886,6 +895,7 @@ private:
     void WaitForSetupButton(const char* reason) {
         Application::GetInstance().SetDeviceState(kDeviceStateWifiConfiguring);
         setup_waiter_.store(xTaskGetCurrentTaskHandle());
+        display_->ShowNetworkPage(nullptr);
         display_->SetStatus("联网失败");
         const std::string hint = std::string("短按机身侧面 确认键一次，进入配网。\n") + reason;
         display_->SetChatMessage("system", hint.c_str());
@@ -943,17 +953,15 @@ private:
             if (GuideButton(false)) return;
             if (display_->WakeScreen()) return;
             if (menu_open_) { SelectItem(); return; }
-            if (PocketMemoUnread() && (network_page_ == NetworkPage::Home || (network_page_ == NetworkPage::Hidden && Application::GetInstance().GetDeviceState() == kDeviceStateIdle))) { RequestMusicFromButton(MusicAction::HearMemo); return; }
-            auto expected = NetworkPage::Disconnected;
-            if (network_page_.compare_exchange_strong(expected, NetworkPage::Home)) return;
-            if (expected == NetworkPage::Home) { RequestMusicFromButton(MusicAction::Listen); return; }
+            if (PocketMemoUnread() && (offline_home_ || Application::GetInstance().GetDeviceState() == kDeviceStateIdle)) { RequestMusicFromButton(MusicAction::HearMemo); return; }
+            if (offline_home_) { RequestMusicFromButton(MusicAction::Listen); return; }
             if (auto task = setup_waiter_.load()) {
                 xTaskNotifyGive(task);
                 return;
             }
             auto& app = Application::GetInstance();
             if (app.GetDeviceState() == kDeviceStateStarting && !WifiStation::GetInstance().IsConnected()) {
-                ResetWifiConfiguration();
+                return;
             }
             if (app.IsVoicePaused()) app.SetVoicePaused(false);
             else app.ToggleChatState();
@@ -968,7 +976,6 @@ private:
             if (GuideButton(true)) return;
             if (display_->WakeScreen()) return;
             if (menu_open_) MoveMenu(false);
-            else if (network_page_ == NetworkPage::Disconnected) ResetWifiConfiguration();
             else RequestMusicFromButton(MusicAction::Toggle);
         });
         pwr_button_.OnDoubleClick([this]() {
@@ -1201,7 +1208,7 @@ public:
         auto& audio = app.GetAudioService();
         auto state = app.GetDeviceState();
         bool home = state == kDeviceStateIdle ||
-            (state == kDeviceStateWifiConfiguring && network_page_ != NetworkPage::Hidden);
+            (state == kDeviceStateWifiConfiguring && offline_home_);
         bool ready = !FirmwareUpdateActive() && home && guide_page_ < 0 && audio.WakeWordAllowed() && audio.IsWakeWordRunning() &&
             !audio.IsAudioProcessorRunning() && audio.IsIdle() && !music_.IsBusy();
         std::lock_guard<std::mutex> lock(standby_mutex_);

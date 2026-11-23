@@ -128,7 +128,9 @@ void Application::CheckAssetsVersion() {
     // Apply assets
     assets.Apply();
     display->SetChatMessage("system", "");
+#if !CONFIG_BOARD_TYPE_WAVESHARE_S3_ePaper_1_54
     display->SetEmotion("microchip_ai");
+#endif
 }
 
 void Application::CheckNewVersion(Ota& ota, bool service_only) {
@@ -450,8 +452,7 @@ void Application::Start() {
     /* Setup the display */
     auto display = board.GetDisplay();
 
-    // Print board name/version info
-    display->SetChatMessage("system", SystemInfo::GetUserAgent().c_str());
+    board.ShowStartupScreen();
 
     /* Setup the audio service */
     auto codec = board.GetAudioCodec();

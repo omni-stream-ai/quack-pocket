@@ -53,6 +53,10 @@ bool Board::GetTemperature(float& esp32temp){
     return false;
 }
 
+void Board::ShowStartupScreen() {
+    GetDisplay()->SetChatMessage("system", SystemInfo::GetUserAgent().c_str());
+}
+
 Display* Board::GetDisplay() {
     static NoDisplay display;
     return &display;

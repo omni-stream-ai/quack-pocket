@@ -52,6 +52,7 @@ public:
     virtual bool FirmwareUpdateActive() const { return false; }
     virtual bool AcceptUserAction() { return true; }
     virtual bool CanStartVoiceShortcut() { return true; }
+    virtual void ShowStartupScreen();
     virtual void StartNetwork() = 0;
     virtual const char* GetNetworkStateIcon() = 0;
     virtual bool GetBatteryLevel(int &level, bool& charging, bool& discharging);

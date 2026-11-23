@@ -94,6 +94,7 @@ void WifiBoard::StartNetwork() {
     }
 
     auto& wifi_station = WifiStation::GetInstance();
+#if !CONFIG_BOARD_TYPE_WAVESHARE_S3_ePaper_1_54
     auto found_network = std::make_shared<std::atomic<bool>>(false);
     wifi_station.OnScanBegin([this]() {
         auto display = Board::GetInstance().GetDisplay();
@@ -113,13 +114,18 @@ void WifiBoard::StartNetwork() {
         notification += ssid;
         display->ShowNotification(notification.c_str(), 30000);
     });
+#endif
     wifi_station.Start();
 
     // Try to connect to WiFi, if failed, launch the WiFi configuration AP
     if (!WaitForInitialWifi()) {
         wifi_station.Stop();
         wifi_config_mode_ = true;
+#if CONFIG_BOARD_TYPE_WAVESHARE_S3_ePaper_1_54
+        OnWifiConnectionFailed(false);
+#else
         OnWifiConnectionFailed(found_network->load());
+#endif
         return;
     }
 }

@@ -135,7 +135,7 @@ void CustomLcdDisplay::lvgl_flush_cb(lv_display_t * disp, const lv_area_t * area
 {
     assert(disp != NULL);
     CustomLcdDisplay *driver = (CustomLcdDisplay *)lv_display_get_user_data(disp);
-    if (driver->shutdown_frame_) {
+    if (driver->awaiting_home_ || driver->shutdown_frame_) {
         lv_disp_flush_ready(disp);
         return;
     }
@@ -669,15 +669,29 @@ CustomLcdDisplay::ExitPage CustomLcdDisplay::GetExitPage() {
     return page;
 }
 
+static void UpdateHomeWifi(lv_obj_t* page, bool connecting) {
+    auto* signal = lv_obj_get_child(lv_obj_get_child(page, 6), 2);
+    const char* icon = WifiStation::GetInstance().IsConnected() ? FONT_AWESOME_WIFI :
+                       connecting ? FONT_AWESOME_WIFI_WEAK : FONT_AWESOME_WIFI_SLASH;
+    if (strcmp(lv_label_get_text(signal), icon)) lv_label_set_text(signal, icon);
+}
+
 static void AddHomeIndicators(lv_obj_t* page);
 
 void CustomLcdDisplay::ShowDisconnectedHome(bool reconnecting) {
     if (!Lock(3000)) return;
+    if (network_home_ && network_connecting_ == reconnecting) {
+        Unlock();
+        return;
+    }
     ResetSaver();
+    awaiting_home_ = false;
+    network_connecting_ = reconnecting;
     if (!network_page_) network_page_ = CreatePageLabel();
     lv_obj_clean(network_page_);
     AddHomeIndicators(network_page_);
-    RenderHomeText(network_page_, reconnecting ? "Wi-Fi 重连中" : (Settings("omni_ui").GetInt("wifi_on", 1) ? "尚未设置 Wi-Fi" : "Wi-Fi 已关闭"), "说音乐口令");
+    UpdateHomeWifi(network_page_, reconnecting);
+    RenderHomeText(network_page_, reconnecting ? "按确认键说口令" : (Settings("omni_ui").GetInt("wifi_on", 1) ? "尚未设置 Wi-Fi" : "Wi-Fi 已关闭"), "说音乐口令");
     AddPocketDuck(network_page_, 136, 38);
     network_home_ = true;
     if (playback_page_) lv_obj_move_foreground(playback_page_);
@@ -794,10 +808,6 @@ static void AddHomeIndicators(lv_obj_t* page) {
         int level;
         bool charging, discharging;
         bool known = Board::GetInstance().GetBatteryLevel(level, charging, discharging);
-        bool online = WifiStation::GetInstance().IsConnected();
-        auto* signal = lv_obj_get_child(label, 2);
-        const char* icon = online ? FONT_AWESOME_WIFI : FONT_AWESOME_WIFI_SLASH;
-        if (strcmp(lv_label_get_text(signal), icon)) lv_label_set_text(signal, icon);
         float temperature, humidity;
         char climate[48] = "温湿度暂无读数";
         if (pocket_sensors::ReadEnvironment(temperature, humidity))
@@ -854,9 +864,16 @@ void CustomLcdDisplay::ShowHome(bool visible) {
         voice_exit_hint_ = nullptr;
     }
     if (visible) {
+        if (!home_page_ && network_home_ && WifiStation::GetInstance().IsConnected()) {
+            home_page_ = network_page_;
+            network_page_ = nullptr;
+            network_home_ = false;
+            UpdateHomeWifi(home_page_, true);
+        }
         if (!home_page_) {
             home_page_ = CreatePageLabel();
             AddHomeIndicators(home_page_);
+            UpdateHomeWifi(home_page_, true);
             AddPocketDuck(home_page_, 136, 38);
         }
         RenderConnectedHome();
@@ -932,6 +949,8 @@ void CustomLcdDisplay::SetStatus(const char* status) {
 }
 
 void CustomLcdDisplay::UpdateSaver() {
+    if (network_home_) UpdateHomeWifi(network_page_, network_connecting_);
+    else if (home_page_) UpdateHomeWifi(home_page_, true);
     if (ManagementInUse()) {
         ResetSaver();
         return;
