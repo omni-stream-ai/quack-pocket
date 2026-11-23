@@ -1,3 +1,7 @@
+#include "sdkconfig.h"
+#if CONFIG_BOARD_TYPE_WAVESHARE_S3_ePaper_1_54
+#include "boards/waveshare-s3-epaper-1.54/pocket_sensors.h"
+#endif
 #include "ota.h"
 #include "system_info.h"
 #include "settings.h"
@@ -16,7 +20,6 @@
 
 #include <cstring>
 #include <vector>
-#include <sstream>
 #include <algorithm>
 
 #define TAG "Ota"
@@ -215,6 +218,9 @@ bool Ota::CheckVersion(bool check_firmware) {
             tv.tv_sec = (time_t)(ts / 1000);  // 转换毫秒为秒
             tv.tv_usec = (suseconds_t)((long long)ts % 1000) * 1000;  // 剩余的毫秒转换为微秒
             settimeofday(&tv, NULL);
+#if CONFIG_BOARD_TYPE_WAVESHARE_S3_ePaper_1_54
+            pocket_sensors::ClockSynchronized();
+#endif
             has_server_time_ = true;
         }
     } else {
@@ -397,13 +403,13 @@ bool Ota::StartUpgradeFromUrl(const std::string& url, std::function<void(int pro
 
 std::vector<int> Ota::ParseVersion(const std::string& version) {
     std::vector<int> versionNumbers;
-    std::stringstream ss(version);
-    std::string segment;
-    
-    while (std::getline(ss, segment, '.')) {
-        versionNumbers.push_back(std::stoi(segment));
+    size_t start = 0;
+    while (start < version.size()) {
+        auto end = version.find('.', start);
+        versionNumbers.push_back(std::stoi(version.substr(start, end - start)));
+        if (end == std::string::npos) break;
+        start = end + 1;
     }
-    
     return versionNumbers;
 }
 

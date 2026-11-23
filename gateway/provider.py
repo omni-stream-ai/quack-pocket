@@ -102,6 +102,10 @@ class Provider:
             tools.append(PLAYLIST_TOOL)
         if enabled.get("volume", True) and re.search(r"音量|声音|聲音|大[声聲]|小[声聲]|静音|靜音|volume|louder|quieter|mute", phrase, re.I):
             tools.extend(VOLUME_TOOLS)
+        if settings.get("environment") and re.search(r"温|溫|湿|濕|几点|幾點|时间|時間|几号|幾號|日期|星期|周几|time|date|temperature|humidity|how hot|how cold", phrase, re.I):
+            tools.append({"type": "function", "function": {"name": "environment_status",
+                          "description": "查询设备当地时间与传感器实测温湿度。",
+                          "parameters": {"type": "object", "properties": {}}}})
         if enabled.get("network") and re.search(r"蓝牙|藍牙|无线网|网络|wi[ -]?fi|bluetooth", phrase, re.I):
             tools.append(RADIO_STATUS)
             if re.search(r"(?:打开|关闭|关掉|开启|启用|禁用).{0,5}(?:蓝牙|藍牙)|turn (?:on|off) bluetooth", phrase, re.I):

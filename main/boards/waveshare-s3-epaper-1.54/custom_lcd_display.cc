@@ -1,3 +1,4 @@
+#include "pocket_sensors.h"
 #include <font_awesome.h>
 #include "phone_setup.h"
 #include "custom_lcd_display.h"
@@ -150,25 +151,39 @@ void CustomLcdDisplay::lvgl_flush_cb(lv_display_t * disp, const lv_area_t * area
         }
     }
     if (changed) {
-        ++driver->partial_updates_;
-        driver->changed_pixels_ += changed;
-        // Small changes such as the clock should not count as a whole page.
-        // Still clean periodically when the same small area changes repeatedly.
-        const unsigned screen_pixels = driver->Width * driver->Height;
-        if (driver->partial_updates_ >= 120 ||
-            (driver->partial_updates_ >= 30 && driver->changed_pixels_ >= 6 * screen_pixels)) {
-            ESP_LOGI(TAG, "Panel cleaning: %u updates, %u changed pixels",
-                     driver->partial_updates_, driver->changed_pixels_);
-            driver->EPD_Init();
-            driver->EPD_DisplayPartBaseImage();
-            driver->EPD_Init_Partial();
-            driver->partial_updates_ = 0;
-            driver->changed_pixels_ = 0;
-        } else {
-            driver->EPD_DisplayPart();
-        }
+        driver->pending_pixels_ += changed;
+        if (driver->panel_timer_) lv_timer_resume(driver->panel_timer_);
+        else driver->FlushPendingFrame();
     }
     lv_disp_flush_ready(disp);
+}
+
+void CustomLcdDisplay::FlushPendingFrame() {
+    if (shutdown_frame_ || !pending_pixels_) {
+        if (panel_timer_) lv_timer_pause(panel_timer_);
+        return;
+    }
+    // LVGL owns the latest bitmap. While the panel is busy, let the UI and
+    // voice tasks proceed and send the latest accumulated frame on a later tick.
+    if (panel_timer_ && gpio_get_level(static_cast<gpio_num_t>(lcd_spi_data.busy))) return;
+    ++partial_updates_;
+    changed_pixels_ += pending_pixels_;
+    pending_pixels_ = 0;
+    if (partial_updates_ >= 120 ||
+        (partial_updates_ >= 30 && changed_pixels_ >= 6u * Width * Height)) {
+        ESP_LOGI(TAG, "Panel cleaning: %u updates, %u changed pixels", partial_updates_, changed_pixels_);
+        EPD_Init();
+        EPD_DisplayPartBaseImage();
+        EPD_Init_Partial();
+        partial_updates_ = changed_pixels_ = 0;
+    } else {
+        EPD_DisplayPart();
+        if (!panel_timer_) read_busy();
+    }
+    if (panel_timer_) {
+        lv_timer_reset(panel_timer_);
+        lv_timer_pause(panel_timer_);
+    }
 }
 
 CustomLcdDisplay::CustomLcdDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_handle_t panel,
@@ -208,6 +223,11 @@ CustomLcdDisplay::CustomLcdDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_p
     EPD_DisplayPartBaseImage();
     EPD_Init_Partial();            //局部刷新初始化
 
+    panel_timer_ = lv_timer_create([](lv_timer_t* timer) {
+        static_cast<CustomLcdDisplay*>(lv_timer_get_user_data(timer))->FlushPendingFrame();
+    }, 30, this);
+    if (panel_timer_) lv_timer_pause(panel_timer_);
+
     lvgl_port_unlock();
 	if (display_ == nullptr) {
         ESP_LOGE(TAG, "Failed to add display");
@@ -238,7 +258,7 @@ CustomLcdDisplay::CustomLcdDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_p
 }
 
 CustomLcdDisplay::~CustomLcdDisplay() {
-
+    if (panel_timer_ && Lock(0)) { lv_timer_delete(panel_timer_); Unlock(); }
 }
 
 void CustomLcdDisplay::spi_gpio_init() {
@@ -388,7 +408,7 @@ void CustomLcdDisplay::EPD_TurnOnDisplayPart() {
     EPD_SendCommand(0x22);
     EPD_SendData(0xcf);
     EPD_SendCommand(0x20);
-    read_busy();
+    // FlushPendingFrame polls BUSY before submitting the next frame.
 }
 
 void CustomLcdDisplay::EPD_Init() {
@@ -574,6 +594,13 @@ void CustomLcdDisplay::SetChatMessage(const char* role, const char* content) {
     }
 }
 
+static void FitMediaText(lv_obj_t* label) {
+    const int height = lv_font_get_line_height(lv_obj_get_style_text_font(label, 0));
+    lv_obj_set_size(label, 180, height);
+    lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
+}
+
 void CustomLcdDisplay::ShowMenu(const std::string& header, const char* icon, const char* title, const std::string& detail, const char* navigation) {
     if (!Lock(3000)) return;
     RenderMenuLocked(header);
@@ -585,8 +612,8 @@ void CustomLcdDisplay::ShowMenu(const std::string& header, const char* icon, con
     };
     auto* glyph = centered(icon, 44);
     lv_obj_set_style_text_font(glyph, &font_awesome_30_4, 0);
-    centered(title, 88);
-    if (!detail.empty()) centered(detail.c_str(), 110);
+    FitMediaText(centered(title, 88));
+    if (!detail.empty()) FitMediaText(centered(detail.c_str(), 110));
     centered(navigation, 145);
     centered("确认键 短按确认 · 长按返回", 167);
     Unlock();
@@ -604,10 +631,8 @@ void CustomLcdDisplay::ShowPlayback(bool story, const std::string& path, const c
     lv_label_set_text(playback_page_, story ? "故事播放" : "音乐播放");
     auto label = [this](const char* text, int y, bool icon = false) {
         auto* obj = lv_label_create(playback_page_);
-        lv_obj_set_width(obj, 180);
-        lv_obj_set_style_text_align(obj, LV_TEXT_ALIGN_CENTER, 0);
-        lv_label_set_long_mode(obj, LV_LABEL_LONG_DOT);
         if (icon) lv_obj_set_style_text_font(obj, &font_awesome_30_4, 0);
+        FitMediaText(obj);
         lv_label_set_text(obj, text);
         lv_obj_align(obj, LV_ALIGN_TOP_MID, 0, y);
     };
@@ -760,6 +785,8 @@ static void AddHomeIndicators(lv_obj_t* page) {
     lv_obj_align_to(unknown, battery, LV_ALIGN_CENTER, 0, 0);
     auto* greeting_label = lv_label_create(page);
     lv_obj_set_pos(greeting_label, 2, 40);
+    auto* environment = lv_label_create(page);
+    lv_obj_set_pos(environment, 2, 79);
     lv_label_set_text(page, "");
     auto update = [](lv_timer_t* timer) {
         auto* label = static_cast<lv_obj_t*>(lv_timer_get_user_data(timer));
@@ -771,6 +798,12 @@ static void AddHomeIndicators(lv_obj_t* page) {
         auto* signal = lv_obj_get_child(label, 2);
         const char* icon = online ? FONT_AWESOME_WIFI : FONT_AWESOME_WIFI_SLASH;
         if (strcmp(lv_label_get_text(signal), icon)) lv_label_set_text(signal, icon);
+        float temperature, humidity;
+        char climate[48] = "温湿度暂无读数";
+        if (pocket_sensors::ReadEnvironment(temperature, humidity))
+            snprintf(climate, sizeof(climate), "%.1f°C  %.0f%%", temperature, humidity);
+        auto* environment = lv_obj_get_child(lv_obj_get_parent(label), 8);
+        if (strcmp(lv_label_get_text(environment), climate)) lv_label_set_text(environment, climate);
         char clock[40] = "时间待同步";
         time_t now = time(nullptr);
         if (now >= 1704067200) {
@@ -961,6 +994,7 @@ bool CustomLcdDisplay::SaveSaver(Saver slot, const uint8_t* pixels) {
 void CustomLcdDisplay::ShowShutdownSaver() {
     Lock(0);
     shutdown_frame_ = true;
+    read_busy();
     ReadSaver(Saver::Shutdown, buffer);
     for (size_t i = 0; i < saver_bytes; ++i) buffer[i] ^= 0xff; // panel RAM uses white = 1
     EPD_Init();

@@ -67,7 +67,9 @@ std::mutex prompt_mutex;
 std::string shown_ticket;
 constexpr uint32_t show_setup = 1, settings_saved = 2, leave_setup = 4;
 
-extern const char page[] asm("_binary_index_html_start");
+extern const char script_start[] asm("_binary_setup_js_gz_start");
+extern const char script_end[] asm("_binary_setup_js_gz_end");
+extern const char page[] asm("_binary_setup_html_start");
 using Json = std::unique_ptr<cJSON, decltype(&cJSON_Delete)>;
 
 esp_err_t Reply(httpd_req_t* req, const char* type, const char* body) {
@@ -470,6 +472,16 @@ esp_err_t RegisterSetupRoutes(httpd_handle_t server, CustomLcdDisplay* display, 
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(server, &leave),"setup","register route");
     networks.uri = "/networks"; networks.method = HTTP_GET; networks.handler = Networks;
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(server, &networks),"setup","register route");
+    httpd_uri_t script{};
+    script.uri = "/setup.js";
+    script.method = HTTP_GET;
+    script.handler = [](httpd_req_t* req) {
+        httpd_resp_set_type(req, "text/javascript; charset=utf-8");
+        httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
+        httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+        return httpd_resp_send(req, script_start, script_end - script_start);
+    };
+    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(server, &script),"setup","register script");
     home.uri = "/"; home.method = HTTP_GET;
     home.user_ctx = lan ? display : nullptr;
     home.handler = [](httpd_req_t* req) {
@@ -563,7 +575,7 @@ int BluetoothSetupPort(CustomLcdDisplay* display) {
         if (esp_netif_init()!=ESP_OK) return 0;
         httpd_config_t conf=HTTPD_DEFAULT_CONFIG();
         conf.server_port=port;conf.ctrl_port+=2;conf.open_fn=LoopbackOnly;
-        conf.max_uri_handlers=12;conf.max_open_sockets=1;conf.stack_size=8192;
+        conf.max_uri_handlers=13;conf.max_open_sockets=1;conf.stack_size=8192;
         if(httpd_start(&server,&conf)!=ESP_OK)return 0;
         if(RegisterSetupRoutes(server,display,false,nullptr)!=ESP_OK){
             httpd_stop(server);server=nullptr;return 0;
@@ -761,7 +773,7 @@ void RunPhoneSetup(CustomLcdDisplay* display, bool lan) {
         ESP_ERROR_CHECK(esp_wifi_start());
 
         httpd_config_t settings = HTTPD_DEFAULT_CONFIG();
-        settings.max_uri_handlers = 12;
+        settings.max_uri_handlers = 13;
         settings.stack_size = 8192;
         settings.lru_purge_enable = true;
         ESP_ERROR_CHECK(httpd_start(&server, &settings));

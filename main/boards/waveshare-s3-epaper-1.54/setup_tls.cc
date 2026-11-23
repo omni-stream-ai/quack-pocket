@@ -75,7 +75,7 @@ esp_err_t StartLanSetupServer(httpd_handle_t* server,std::string& fingerprint, c
     for(unsigned i=0;i<12;++i)snprintf(prefix+2*i,3,"%02X",digest[i]);
     fingerprint=prefix;
     httpd_ssl_config_t conf=HTTPD_SSL_CONFIG_DEFAULT();
-    conf.httpd.max_uri_handlers=12;conf.httpd.max_open_sockets=3;
+    conf.httpd.max_uri_handlers=13;conf.httpd.max_open_sockets=3;
     conf.httpd.lru_purge_enable=true;
     conf.servercert=id.cert;conf.servercert_len=id.cert_len;
     conf.prvtkey_pem=id.key;conf.prvtkey_len=id.key_len;

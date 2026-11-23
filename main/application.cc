@@ -13,6 +13,7 @@
 
 #include <cstring>
 #include <esp_log.h>
+#include <esp_heap_caps.h>
 #include <cJSON.h>
 #include <driver/gpio.h>
 #include <arpa/inet.h>
@@ -20,6 +21,15 @@
 
 #define TAG "Application"
 
+
+#if CONFIG_BOARD_TYPE_WAVESHARE_S3_ePaper_1_54
+static void LogVoiceMemory(const char* phase) {
+    constexpr uint32_t caps = MALLOC_CAP_8BIT | MALLOC_CAP_INTERNAL;
+    ESP_LOGI(TAG, "Voice %s: internal_free=%u internal_largest=%u psram_free=%u",
+             phase, unsigned(heap_caps_get_free_size(caps)), unsigned(heap_caps_get_largest_free_block(caps)),
+             unsigned(heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)));
+}
+#endif
 
 static const char* const STATE_STRINGS[] = {
     "unknown",
@@ -299,6 +309,7 @@ void Application::SetVoicePaused(bool paused) {
         Board::GetInstance().GetDisplay()->ShowHome(paused);
         if (!paused) {
             if (waiting_for_voice_entry_.exchange(false)) {
+                deferred_wake_entry_ = false;
                 shortcut_conversation_ = true;
                 xEventGroupSetBits(event_group_, MAIN_EVENT_ENTER_VOICE);
                 return;
@@ -324,6 +335,19 @@ void Application::SetVoicePaused(bool paused) {
     });
 }
 
+// Called on the main event loop for button-initiated calls.
+void Application::StartChatListening() {
+    if (voice_paused_ || device_state_ != kDeviceStateIdle || !protocol_) return;
+    if (!protocol_->IsAudioChannelOpened()) {
+        SetDeviceState(kDeviceStateConnecting);
+        if (!protocol_->OpenAudioChannel()) {
+            if (shortcut_conversation_) ReportVoiceFailure("语音连接失败");
+            return;
+        }
+    }
+    SetListeningMode(aec_mode_ == kAecOff ? kListeningModeAutoStop : kListeningModeRealtime);
+}
+
 void Application::ToggleChatState() {
     if (voice_paused_) return;
     if (device_state_ == kDeviceStateActivating) {
@@ -346,14 +370,7 @@ void Application::ToggleChatState() {
 
     if (device_state_ == kDeviceStateIdle) {
         Schedule([this]() {
-            if (!protocol_->IsAudioChannelOpened()) {
-                SetDeviceState(kDeviceStateConnecting);
-                if (!protocol_->OpenAudioChannel()) {
-                    return;
-                }
-            }
-
-            SetListeningMode(aec_mode_ == kAecOff ? kListeningModeAutoStop : kListeningModeRealtime);
+            StartChatListening();
         });
     } else if (device_state_ == kDeviceStateSpeaking) {
         Schedule([this]() {
@@ -690,7 +707,8 @@ void Application::Start() {
         Schedule([this, protocol_started]() {
             if (!shortcut_conversation_) return;
             if (!voice_paused_ && protocol_started) {
-                OnWakeWordDetected(false);
+                if (deferred_wake_entry_.exchange(false)) OnWakeWordDetected(false);
+                else StartChatListening();
             } else if (!voice_paused_) ReportVoiceFailure("语音服务初始化失败，请检查服务设置");
         });
     } else if (protocol_started) {
@@ -846,6 +864,7 @@ void Application::OnWakeWordDetected(bool acknowledge) {
         shortcut_conversation_ = true;
         Board::GetInstance().GetDisplay()->ShowHome(false);
         if (waiting_for_voice_entry_.exchange(false)) {
+            deferred_wake_entry_ = true;
             xEventGroupSetBits(event_group_, MAIN_EVENT_ENTER_VOICE);
             return;
         }
@@ -929,21 +948,26 @@ void Application::SetDeviceState(DeviceState state) {
             audio_service_.EnableWakeWordDetection(true);
             break;
         case kDeviceStateConnecting:
+#if CONFIG_BOARD_TYPE_WAVESHARE_S3_ePaper_1_54
+            LogVoiceMemory("connecting");
+#endif
             display->SetStatus(Lang::Strings::CONNECTING);
             display->SetEmotion("neutral");
             display->SetChatMessage("system", "");
             break;
         case kDeviceStateListening:
-            display->SetStatus(Lang::Strings::LISTENING);
-            display->SetEmotion("neutral");
-
             // Make sure the audio processor is running
             if (!audio_service_.IsAudioProcessorRunning()) {
                 // Send the start listening command
                 protocol_->SendStartListening(listening_mode_);
                 audio_service_.EnableVoiceProcessing(true);
                 audio_service_.EnableWakeWordDetection(false);
+#if CONFIG_BOARD_TYPE_WAVESHARE_S3_ePaper_1_54
+                LogVoiceMemory("microphone enabled");
+#endif
             }
+            display->SetStatus(Lang::Strings::LISTENING);
+            display->SetEmotion("neutral");
 #if CONFIG_BOARD_TYPE_WAVESHARE_S3_ePaper_1_54
             if (audio_service_.IsAudioProcessorRunning()) display->ShowVoiceHint("嘎，我在听。请说！", 2500);
 #endif

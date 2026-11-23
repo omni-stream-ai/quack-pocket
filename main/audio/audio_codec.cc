@@ -30,7 +30,7 @@ void AudioCodec::Start() {
     Settings settings("audio", false);
     output_volume_ = settings.GetInt("output_volume", output_volume_);
     if (output_volume_ <= 0) {
-        ESP_LOGW(TAG, "Output volume value (%d) is too small, setting to default (10)", output_volume_);
+        ESP_LOGW(TAG, "Output volume value (%d) is too small, setting to default (10)", output_volume());
         output_volume_ = 10;
     }
 
@@ -49,7 +49,7 @@ void AudioCodec::Start() {
 
 void AudioCodec::SetOutputVolume(int volume) {
     output_volume_ = volume;
-    ESP_LOGI(TAG, "Set output volume to %d", output_volume_);
+    ESP_LOGI(TAG, "Set output volume to %d", output_volume());
     
     Settings settings("audio", true);
     settings.SetInt("output_volume", output_volume_);

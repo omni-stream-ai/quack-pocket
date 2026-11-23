@@ -191,12 +191,21 @@ endif()
 file(GLOB COMMON_SOUNDS ${CMAKE_CURRENT_SOURCE_DIR}/assets/common/*.ogg)
 
 idf_component_register(SRCS ${SOURCES} "music/music_index.c" "music/mp3_stream.c" "music/build_index.cc" "music/music_resampler.cc" "voice/voice_profile.cc"
-                    EMBED_TXTFILES "${PROJECT_DIR}/web/index.html"
                     EMBED_FILES ${LANG_SOUNDS} ${COMMON_SOUNDS}
                     INCLUDE_DIRS ${INCLUDE_DIRS}
                     WHOLE_ARCHIVE
                     )
 
+set(setup_html "${CMAKE_CURRENT_BINARY_DIR}/setup.html")
+set(setup_js "${CMAKE_CURRENT_BINARY_DIR}/setup.js.gz")
+idf_build_get_property(build_python PYTHON)
+add_custom_command(OUTPUT "${setup_html}" "${setup_js}"
+    COMMAND "${build_python}" "${PROJECT_DIR}/scripts/embed_setup_page.py"
+            "${PROJECT_DIR}/web/index.html" "${setup_html}" "${setup_js}"
+    DEPENDS "${PROJECT_DIR}/web/index.html" "${PROJECT_DIR}/scripts/embed_setup_page.py"
+    VERBATIM)
+target_add_binary_data(${COMPONENT_LIB} "${setup_html}" TEXT)
+target_add_binary_data(${COMPONENT_LIB} "${setup_js}" BINARY)
 target_add_binary_data(${COMPONENT_LIB} "${PROJECT_DIR}/branding/duck-listening.pbm" BINARY)
 target_add_binary_data(${COMPONENT_LIB} "${PROJECT_DIR}/branding/duck-sleeping.pbm" BINARY)
 target_add_binary_data(${COMPONENT_LIB} "${CMAKE_CURRENT_SOURCE_DIR}/boards/${BOARD_TYPE}/ota_public.pem" TEXT)

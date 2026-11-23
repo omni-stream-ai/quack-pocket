@@ -112,11 +112,12 @@ public:
     void InterruptMusicForWake();
     void EndWakeInterruption();
     bool IsMusicInterrupted() const { return wake_music_hold_.load(); }
-    bool PushMusicPcm(std::vector<int16_t>& pcm);
+    bool PushMusicPcm(std::vector<int16_t>& pcm, bool protect_wake = false);
     bool PushPacketToDecodeQueue(std::unique_ptr<AudioStreamPacket> packet, bool wait = false);
     std::unique_ptr<AudioStreamPacket> PopPacketFromSendQueue();
     void PlaySound(const std::string_view& sound);
     bool ReadAudioData(std::vector<int16_t>& data, int sample_rate, int samples);
+    bool ReadAudioData(std::vector<int16_t>& data, int sample_rate, int samples, std::vector<int16_t>& raw);
     void ResetDecoder();
     void SetModelsList(srmodel_list_t* models_list);
 
@@ -162,7 +163,7 @@ private:
     bool audio_processor_initialized_ = false;
     bool voice_detected_ = false;
     bool service_stopped_ = true;
-    bool audio_input_need_warmup_ = false;
+    std::atomic<bool> audio_input_need_warmup_{false};
 
     esp_timer_handle_t audio_power_timer_ = nullptr;
     std::chrono::steady_clock::time_point last_input_time_;

@@ -231,7 +231,7 @@ void AdcPdmAudioCodec::Start() {
     Settings settings("audio", false);
     output_volume_ = settings.GetInt("output_volume", output_volume_);
     if (output_volume_ <= 0) {
-        ESP_LOGW(TAG, "Output volume value (%d) is too small, setting to default (10)", output_volume_);
+        ESP_LOGW(TAG, "Output volume value (%d) is too small, setting to default (10)", output_volume());
         output_volume_ = 10;
     }
 

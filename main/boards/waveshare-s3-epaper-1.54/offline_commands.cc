@@ -58,7 +58,9 @@ std::string Pronunciation(const std::string& text) {
                 (text[pos+1] & 0xc0) != 0x80 || (text[pos+2] & 0xc0) != 0x80) return {};
             unsigned code = ((lead & 15) << 12) | ((text[pos+1] & 63) << 6) | (text[pos+2] & 63);
             if (code < 0x4e00 || code >= 0xa000) return {};
-            unit = syllables[han_readings[code - 0x4e00]];
+            unsigned index = code - 0x4e00;
+            unsigned high = (reading_high[index / 8] >> (index % 8)) & 1;
+            unit = syllables[reading_low[index] | (high << 8)];
             if (unit.empty()) return {};
             pos += 3;
         }
@@ -352,10 +354,10 @@ OfflineCommand ListenOffline(const std::function<bool()>& cancelled) {
     engine->clean(model);
     Message(listen_prompt.c_str());
     auto samples = engine->get_samp_chunksize(model);
-    std::vector<int16_t> frame;
+    std::vector<int16_t> frame, raw;
     auto deadline = esp_timer_get_time() + 5000000;
     while (!cancelled() && !audio.IsAudioProcessorRunning() && esp_timer_get_time() < deadline) {
-        if (!audio.ReadAudioData(frame, 16000, samples) || frame.size() != static_cast<size_t>(samples)) break;
+        if (!audio.ReadAudioData(frame, 16000, samples, raw) || frame.size() != static_cast<size_t>(samples)) break;
         if (engine->detect(model, frame.data()) == ESP_MN_STATE_DETECTED) {
             auto result = engine->get_results(model);
             int id = result && result->num ? result->command_id[0] - 1 : -1;

@@ -156,7 +156,8 @@ void MusicPlayer::Run() {
         hide_playback();
         requested_repeat.reset();
         close_track();
-        playlist.clear();
+        std::vector<int16_t>().swap(pending);
+        std::vector<uint32_t>().swap(playlist);
         reset_shuffle_pass();
         music_index_close(&index);
         music_sd_unmount();
@@ -663,7 +664,7 @@ void MusicPlayer::Run() {
             }
         }
         if (esp_timer_get_time()-last_save >= 60000000LL) checkpoint();
-        if (!app.GetAudioService().PushMusicPcm(pending)) {
+        if (!app.GetAudioService().PushMusicPcm(pending, true)) {
             vTaskDelay(1);
         }
 #ifdef OMNI_MUSIC_HIL

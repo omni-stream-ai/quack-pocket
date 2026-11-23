@@ -1,3 +1,4 @@
+#include "pocket_sensors.h"
 #include "voice/control_policy.h"
 #ifdef OMNI_MUSIC_HIL
 #include "music_hil.h"
@@ -797,6 +798,7 @@ private:
         }
         WifiBoard::StartNetwork();
         esp_sntp_config_t clock_config = ESP_NETIF_SNTP_DEFAULT_CONFIG("pool.ntp.org");
+        clock_config.sync_cb = [](timeval*) { pocket_sensors::ClockSynchronized(); };
         esp_netif_sntp_init(&clock_config);
         if (Settings("omni_mode").GetInt("lan_setup",0)) {
             { Settings mode("omni_mode",true); mode.SetInt("lan_setup",0); }
@@ -866,6 +868,7 @@ private:
 
     void MonitorWifi() {
         for (;;) {
+            pocket_sensors::SaveClockIfNeeded();
             auto& station = WifiStation::GetInstance();
             if (!station.IsConnected()) {
                 if (!station.WaitForConnected(3000)) WaitForWifiRecovery();
@@ -1026,6 +1029,8 @@ private:
 
     void InitializeTools() {
         auto& mcp_server = McpServer::GetInstance();
+        mcp_server.AddTool("self.environment.status", "查询设备当地日期、时间及板载传感器实测的温度和相对湿度。", PropertyList(),
+            [](const PropertyList&) -> ReturnValue { return pocket_sensors::Status(); });
         mcp_server.AddTool("self.voice.enter_local_mode", "用户明确说返回首页、退出语音通话或结束语音服务时调用。关闭当前语音通话并回到首页，保留 Wi-Fi。", PropertyList(),
             [this](const PropertyList&) -> ReturnValue {
                 Application::GetInstance().SetVoicePaused(true);
@@ -1150,7 +1155,8 @@ public:
     pwr_button_(VBAT_PWR_GPIO) {
         Power_Init();
         InitBattery();     
-        InitializeI2c();  
+        InitializeI2c();
+        pocket_sensors::Initialize(i2c_bus_);  
         InitializeLcdDisplay();
         if (!music_.Start([this]() { PowerOff(); })) {
             ESP_LOGE(TAG, "SD player task allocation failed");

@@ -2,7 +2,6 @@
 #include "audio_service.h"
 
 #include <esp_log.h>
-#include <sstream>
 
 #define DETECTION_RUNNING_EVENT 1
 
@@ -54,12 +53,12 @@ bool AfeWakeWord::Initialize(AudioCodec* codec, srmodel_list_t* models_list) {
         ESP_LOGI(TAG, "Model %d: %s", i, models_->model_name[i]);
         if (strstr(models_->model_name[i], ESP_WN_PREFIX) != NULL) {
             wakenet_model_ = models_->model_name[i];
-            auto words = esp_srmodel_get_wake_words(models_, wakenet_model_);
-            // split by ";" to get all wake words
-            std::stringstream ss(words);
-            std::string word;
-            while (std::getline(ss, word, ';')) {
-                wake_words_.push_back(word);
+            const char* words = esp_srmodel_get_wake_words(models_, wakenet_model_);
+            while (words && *words) {
+                const char* end = strchr(words, ';');
+                wake_words_.emplace_back(words, end ? size_t(end - words) : strlen(words));
+                if (!end) break;
+                words = end + 1;
             }
         }
     }

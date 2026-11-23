@@ -75,6 +75,7 @@ private:
     ~Application();
 
     std::atomic<bool> shortcut_conversation_{false};
+    std::atomic<bool> deferred_wake_entry_{false};
     std::atomic<bool> waiting_for_voice_entry_{false};
     std::atomic<bool> voice_paused_{false};
     std::mutex mutex_;
@@ -95,6 +96,7 @@ private:
     TaskHandle_t main_event_loop_task_handle_ = nullptr;
 
     void ReportVoiceFailure(const char* fallback);
+    void StartChatListening();
     void OnWakeWordDetected(bool acknowledge = true);
     void CheckNewVersion(Ota& ota, bool service_only = false);
     void CheckAssetsVersion();

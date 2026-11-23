@@ -61,7 +61,7 @@ class Protocols(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual((call["name"],json.loads(call["arguments"])),("play_file",{"path":"晴天"}))
 
     async def test_realtime_audio_through_device_protocol(self):
-        connections, turns = [], []
+        connections, turns, readings = [], [], []
         appended = asyncio.Event()
         async def realtime(req):
             self.assertEqual(req.query["model"],"test-realtime")
@@ -84,6 +84,7 @@ class Protocols(unittest.IsolatedAsyncioTestCase):
                     turns.append(sum(map(len,inputs)))
                     inputs.clear()
                 elif event["type"] == "response.create":
+                    readings.append(event["response"]["instructions"])
                     audio = pcm(24000,.06)
                     for chunk in [audio[:777],audio[777:]]:
                         await ws.send_json({"type":"response.audio.delta","delta":base64.b64encode(chunk).decode()})
@@ -103,13 +104,18 @@ class Protocols(unittest.IsolatedAsyncioTestCase):
             async with TestClient(TestServer(make_app({MAC:TOKEN},factory))) as client:
                 async with client.ws_connect("/device", headers={"Device-Id":MAC,"Authorization":"Bearer "+TOKEN}) as ws:
                     await ws.send_json({"type":"hello","version":1,"audio_params":{"format":"opus","sample_rate":16000,
-                        "frame_duration":60,"channels":1},"model_settings":{"protocol":"qwen_realtime","model":"test-realtime","voice":"Tina"}})
+                        "frame_duration":60,"channels":1},"features":{"environment":True},"model_settings":{"protocol":"qwen_realtime","model":"test-realtime","voice":"Tina"}})
                     self.assertEqual((await ws.receive_json(timeout=2))["type"],"hello")
                     encoder=opus.new_encoder(16000,1,2048,c.byref(c.c_int()))
                     try:
-                        for _ in range(2):
+                        for turn in range(2):
                             appended.clear()
                             await ws.send_json({"type":"listen","state":"start"})
+                            query = (await ws.receive_json(timeout=2))["payload"]
+                            self.assertEqual(query["params"]["name"], "self.environment.status")
+                            reading = f"2026年11月23日 12:0{turn}，温度23.5摄氏度，相对湿度45%"
+                            await ws.send_json({"type":"mcp","payload":{"id":query["id"],
+                                "result":{"content":[{"type":"text","text":reading}]}}})
                             for i in range(5):
                                 buf=c.create_string_buffer(1275)
                                 samples=(c.c_int16*960).from_buffer_copy(pcm(16000,.06))
@@ -125,3 +131,5 @@ class Protocols(unittest.IsolatedAsyncioTestCase):
                         opus.free_encoder(encoder)
             self.assertEqual(connections,[True])
             self.assertEqual(turns,[9600,9600])
+            self.assertIn("12:00，温度23.5", readings[0])
+            self.assertIn("12:01，温度23.5", readings[1])

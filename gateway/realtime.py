@@ -40,7 +40,12 @@ class QwenRealtime:
 
     async def reply(self, conversation):
         await self.send("input_audio_buffer.commit")
-        await self.send("response.create")
+        if conversation.settings.get("environment"):
+            reading = conversation.environment or "暂无设备读数"
+            await self.send("response.create", response={"instructions":
+                f"使用用户的语言简短回答。用户询问设备当地时间或温湿度时，使用本轮设备读数：{reading}。"})
+        else:
+            await self.send("response.create")
         pending = bytearray()
         received = 0
         async with asyncio.timeout(150):

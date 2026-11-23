@@ -244,6 +244,9 @@ std::string WebsocketProtocol::GetHelloMessage() {
 #if CONFIG_USE_SERVER_AEC
     cJSON_AddBoolToObject(features, "aec", true);
 #endif
+    #if CONFIG_BOARD_TYPE_WAVESHARE_S3_ePaper_1_54
+    cJSON_AddBoolToObject(features, "environment", true);
+#endif
     cJSON_AddBoolToObject(features, "mcp", true);
     cJSON_AddItemToObject(root, "features", features);
     cJSON_AddStringToObject(root, "transport", "websocket");

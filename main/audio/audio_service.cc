@@ -146,6 +146,12 @@ void AudioService::Stop() {
 }
 
 bool AudioService::ReadAudioData(std::vector<int16_t>& data, int sample_rate, int samples) {
+    std::vector<int16_t> raw;
+    return ReadAudioData(data, sample_rate, samples, raw);
+}
+
+bool AudioService::ReadAudioData(std::vector<int16_t>& data, int sample_rate, int samples,
+                                 std::vector<int16_t>& raw) {
     if (!codec_->input_enabled()) {
         esp_timer_stop(audio_power_timer_);
         esp_timer_start_periodic(audio_power_timer_, AUDIO_POWER_CHECK_INTERVAL_MS * 1000);
@@ -153,8 +159,9 @@ bool AudioService::ReadAudioData(std::vector<int16_t>& data, int sample_rate, in
     }
 
     if (codec_->input_sample_rate() != sample_rate) {
-        data.resize(samples * codec_->input_sample_rate() / sample_rate * codec_->input_channels());
-        if (!codec_->InputData(data)) {
+        auto& input = codec_->input_channels() == 2 ? data : raw;
+        input.resize(samples * codec_->input_sample_rate() / sample_rate * codec_->input_channels());
+        if (!codec_->InputData(input)) {
             return false;
         }
         if (codec_->input_channels() == 2) {
@@ -174,9 +181,8 @@ bool AudioService::ReadAudioData(std::vector<int16_t>& data, int sample_rate, in
                 data[j + 1] = resampled_reference[i];
             }
         } else {
-            auto resampled = std::vector<int16_t>(input_resampler_.GetOutputSamples(data.size()));
-            input_resampler_.Process(data.data(), data.size(), resampled.data());
-            data = std::move(resampled);
+            data.resize(input_resampler_.GetOutputSamples(input.size()));
+            input_resampler_.Process(input.data(), input.size(), data.data());
         }
     } else {
         data.resize(samples * codec_->input_channels());
@@ -210,6 +216,8 @@ std::unique_lock<std::mutex> AudioService::AcquireCommandMicrophone() {
 }
 
 void AudioService::AudioInputTask() {
+    std::vector<int16_t> data, raw;
+    std::chrono::steady_clock::time_point last_wake_frame{};
     while (true) {
         EventBits_t bits = xEventGroupWaitBits(event_group_, AS_EVENT_AUDIO_TESTING_RUNNING |
             AS_EVENT_WAKE_WORD_RUNNING | AS_EVENT_AUDIO_PROCESSOR_RUNNING,
@@ -224,8 +232,8 @@ void AudioService::AudioInputTask() {
         // A manual command can own the microphone across several frames.
         bits = xEventGroupGetBits(event_group_);
         if (!(bits & (AS_EVENT_AUDIO_TESTING_RUNNING | AS_EVENT_WAKE_WORD_RUNNING | AS_EVENT_AUDIO_PROCESSOR_RUNNING))) continue;
-        if (audio_input_need_warmup_) {
-            audio_input_need_warmup_ = false;
+        if (audio_input_need_warmup_.exchange(false) &&
+            (!codec_->input_enabled() || std::chrono::steady_clock::now() - last_wake_frame >= std::chrono::milliseconds(120))) {
             vTaskDelay(pdMS_TO_TICKS(120));
             continue;
         }
@@ -237,9 +245,8 @@ void AudioService::AudioInputTask() {
                 EnableAudioTesting(false);
                 continue;
             }
-            std::vector<int16_t> data;
             int samples = OPUS_FRAME_DURATION_MS * 16000 / 1000;
-            if (ReadAudioData(data, 16000, samples)) {
+            if (ReadAudioData(data, 16000, samples, raw)) {
                 // If input channels is 2, we need to fetch the left channel data
                 if (codec_->input_channels() == 2) {
                     auto mono_data = std::vector<int16_t>(data.size() / 2);
@@ -255,11 +262,11 @@ void AudioService::AudioInputTask() {
 
         /* Feed the wake word */
         if (bits & AS_EVENT_WAKE_WORD_RUNNING) {
-            std::vector<int16_t> data;
             int samples = wake_word_->GetFeedSize();
             if (samples > 0) {
-                if (ReadAudioData(data, 16000, samples)) {
+                if (ReadAudioData(data, 16000, samples, raw)) {
                     wake_word_->Feed(data);
+                    last_wake_frame = std::chrono::steady_clock::now();
                     continue;
                 }
             }
@@ -267,10 +274,9 @@ void AudioService::AudioInputTask() {
 
         /* Feed the audio processor */
         if (bits & AS_EVENT_AUDIO_PROCESSOR_RUNNING) {
-            std::vector<int16_t> data;
             int samples = audio_processor_->GetFeedSize();
             if (samples > 0) {
-                if (ReadAudioData(data, 16000, samples)) {
+                if (ReadAudioData(data, 16000, samples, raw)) {
                     audio_processor_->Feed(std::move(data));
                     continue;
                 }
@@ -470,12 +476,21 @@ void AudioService::EndWakeInterruption() {
     wake_music_hold_ = false;
 }
 
-bool AudioService::PushMusicPcm(std::vector<int16_t>& pcm) {
+bool AudioService::PushMusicPcm(std::vector<int16_t>& pcm, bool protect_wake) {
     std::unique_lock<std::mutex> lock(audio_queue_mutex_);
     if (wake_music_hold_ || service_stopped_ || audio_playback_queue_.size() >= MAX_PLAYBACK_TASKS_IN_QUEUE) {
         return false;
     }
     auto task = std::make_unique<AudioTask>();
+    // ES8311 has no microphone echo-reference channel. Leave acoustic headroom
+    // for the wake word when the speaker is playing loud local media.
+    if (protect_wake && (xEventGroupGetBits(event_group_) & AS_EVENT_WAKE_WORD_RUNNING)) {
+        const int volume = codec_->output_volume();
+        if (volume > 70) {
+            const int gain = 256 - 5 * (std::min(volume, 100) - 70);
+            for (auto& sample : pcm) sample = sample * gain / 256;
+        }
+    }
     task->type = kAudioTaskTypeMusic;
     task->timestamp = 0;
     task->pcm.swap(pcm);

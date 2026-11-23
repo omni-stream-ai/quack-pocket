@@ -92,6 +92,9 @@ private:
     const int Height;
     spi_device_handle_t spi;
     uint8_t *buffer = NULL;
+    lv_timer_t* panel_timer_ = nullptr;
+    unsigned pending_pixels_ = 0;
+    void FlushPendingFrame();
     unsigned partial_updates_ = 0;
     unsigned changed_pixels_ = 0;
     

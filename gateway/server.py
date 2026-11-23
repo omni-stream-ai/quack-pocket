@@ -34,6 +34,8 @@ def model_settings(hello):
     if not isinstance(values, dict) or not values.get("model"):
         raise ValueError("missing model settings")
     result = {}
+    if isinstance(hello.get("features"), dict) and hello["features"].get("environment") is True:
+        result["environment"] = True
     for key, max_bytes in (("model", 96), ("asr", 96), ("tts", 96), ("voice", 64)):
         value = values.get(key, "")
         if (not isinstance(value, str) or len(value.encode("utf-8")) > max_bytes
@@ -92,6 +94,8 @@ def music_call(call):
             return "self.audio_speaker." + name, args
     if name == "enter_local_mode" and args == {}:
         return "self.voice.enter_local_mode", args
+    if name == "environment_status" and args == {}:
+        return "self.environment.status", args
     if name == "radio_status" and args == {}:
         return "self.radio.status", args
     if name == "disable_wifi" and args == {}:
@@ -124,11 +128,14 @@ class Conversation:
         self.turn = 0
         self.pending_device_reply = None
         self.pending_control = None
+        self.environment_request = None
+        self.environment = None
         self.reset_input()
 
     def reset_input(self):
         self.pre = deque(maxlen=5)
         self.recording = bytearray()
+        self.recorded_bytes = 0
         self.silence = 0
         self.frames = 0
 
@@ -144,11 +151,12 @@ class Conversation:
 
     async def finish(self):
         self.listening = False
-        if self.recording:
-            pcm = bytes(self.recording)
+        if self.recorded_bytes:
+            pcm = self.recording
+            size = self.recorded_bytes
             self.reset_input()
             await self.cancel()
-            self.job = asyncio.create_task(self.respond(pcm))
+            self.job = asyncio.create_task(self.respond(pcm, size))
         else:
             await self.socket.close()
 
@@ -160,23 +168,37 @@ class Conversation:
         pcm = self.codec.pcm(packet)
         speech = any([self.vad.is_speech(pcm[:960], 16000), self.vad.is_speech(pcm[960:], 16000)])
         self.frames += 1
-        if speech or self.recording:
-            if not self.recording:
+        if speech or self.recorded_bytes:
+            if not self.recorded_bytes:
                 pcm = b"".join(self.pre) + pcm
                 self.pre.clear()
-            self.recording.extend(pcm)
+            self.recorded_bytes += len(pcm)
             if self.realtime:
                 await self.realtime.append(pcm)
+            else:
+                self.recording.extend(pcm)
             self.silence = 0 if speech else self.silence + 1
         else:
             self.pre.append(pcm)
-        if self.silence >= 12 or len(self.recording) >= 30 * 32000 or (not self.recording and self.frames >= 200):
+        if self.silence >= 12 or self.recorded_bytes >= 30 * 32000 or (not self.recorded_bytes and self.frames >= 200):
             await self.finish()
 
     async def control(self, message):
         if not isinstance(message, dict):
             raise ValueError("expected control object")
         kind, state = message.get("type"), message.get("state")
+        if kind == "mcp" and self.environment_request is not None:
+            payload = message.get("payload", {})
+            if payload.get("id") == self.environment_request:
+                self.environment_request = None
+                content = payload.get("result", {}).get("content", [])
+                value = content[0].get("text") if content else None
+                if isinstance(value, str) and re.fullmatch(
+                    r"(?:时间待同步|[0-9]{4}年[0-9]{2}月[0-9]{2}日 [0-9]{2}:[0-9]{2})，"
+                    r"(?:温湿度暂无读数|温度-?[0-9]{1,3}\.[0-9]摄氏度，相对湿度[0-9]{1,3}%)", value
+                ):
+                    self.environment = value
+                return
         if kind == "mcp" and self.pending_device_reply is not None:
             result = message.get("payload", {})
             if result.get("id") == self.pending_device_reply:
@@ -201,6 +223,12 @@ class Conversation:
             self.speaking = False
             self.reset_input()
             self.listening = True
+            if self.realtime and self.settings.get("environment"):
+                self.turn += 1
+                self.environment = None
+                self.environment_request = self.turn
+                await self.send("mcp", payload={"jsonrpc": "2.0", "id": self.turn, "method": "tools/call",
+                    "params": {"name": "self.environment.status", "arguments": {}}})
         elif kind == "listen" and state == "stop" and self.listening:
             await self.finish()
         elif kind == "abort":
@@ -213,11 +241,11 @@ class Conversation:
             self.listening = False
             self.reset_input()
 
-    async def respond(self, pcm):
+    async def respond(self, pcm, size):
         try:
             if self.realtime:
-                if len(pcm) < 3200:
-                    await self.realtime.append(bytes(3200-len(pcm)))
+                if size < 3200:
+                    await self.realtime.append(bytes(3200-size))
                 await self.realtime.reply(self)
                 return
             text = await self.provider.transcribe(pcm, self.settings)
@@ -236,7 +264,7 @@ class Conversation:
             if calls:
                 name, arguments = music_call(calls[0])
                 self.turn += 1
-                if name in ("self.music.playlist", "self.radio.status", "self.radio.bluetooth"):
+                if name in ("self.environment.status", "self.music.playlist", "self.radio.status", "self.radio.bluetooth"):
                     self.pending_device_reply = self.turn
                 if name.startswith("self.audio_speaker.") or arguments.get("action") == "stop":
                     self.pending_control = self.turn

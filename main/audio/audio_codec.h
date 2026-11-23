@@ -5,6 +5,7 @@
 #include <freertos/event_groups.h>
 #include <driver/i2s_std.h>
 
+#include <atomic>
 #include <vector>
 #include <string>
 #include <functional>
@@ -34,7 +35,7 @@ public:
     inline int output_sample_rate() const { return output_sample_rate_; }
     inline int input_channels() const { return input_channels_; }
     inline int output_channels() const { return output_channels_; }
-    inline int output_volume() const { return output_volume_; }
+    inline int output_volume() const { return output_volume_.load(std::memory_order_relaxed); }
     inline float input_gain() const { return input_gain_; }
     inline bool input_enabled() const { return input_enabled_; }
     inline bool output_enabled() const { return output_enabled_; }
@@ -51,7 +52,7 @@ protected:
     int output_sample_rate_ = 0;
     int input_channels_ = 1;
     int output_channels_ = 1;
-    int output_volume_ = 70;
+    std::atomic<int> output_volume_{70};
     float input_gain_ = 0.0;
 
     virtual int Read(int16_t* dest, int samples) = 0;
