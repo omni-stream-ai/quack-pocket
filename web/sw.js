@@ -1,6 +1,6 @@
 // Limit offline storage to the public app files in this installation.
 const prefix = 'quack-pocket:' + self.registration.scope + ':';
-const cacheName = prefix + 'updates-0.0.30-ble';
+const cacheName = prefix + 'updates-0.0.30-tasks';
 const assets = ['index.html', 'manifest.webmanifest', ...[180, 192, 512].map(size =>
   'icons/quack-pocket-' + size + '.png')].map(path => new URL(path, self.registration.scope).href);
 

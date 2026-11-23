@@ -26,6 +26,12 @@ PROBE = """<script>
         byId('retry').click();
         await wait(() => !byId('save').disabled);
         check(byId('updateUrl').value==='https://device.test/manifest.json','Missing update source');
+        check(!byId('overview').hidden && byId('wifi').classList.contains('outside-category'),'Expected device home');
+        document.querySelector('nav a[href="#wifi"]').click();
+        await wait(()=>!byId('wifi').classList.contains('outside-category'));
+        check(byId('overview').hidden && !byId('taskBar').hidden,'Expected a task screen');
+        byId('taskBar').querySelector('a').click();
+        await wait(()=>!byId('overview').hidden);
         const auto=byId('autoUpdate');
         check(!byId('autoUpdateOption').hidden && !auto.checked,'Automatic checks should default off');
         for(const enabled of [true,false]){
@@ -120,6 +126,7 @@ PROBE = """<script>
         byId('saveWords').click();
         await wait(() => byId('wordsStatus').textContent === '离线口令已保存');
         await wait(() => byId('scanStatus').textContent.includes('扫描失败'));
+        location.hash='wifi';await wait(()=>!byId('wifi').classList.contains('outside-category'));
         byId('scan').click();
         await wait(() => byId('networks').children.length === 1);
         byId('networks').firstElementChild.click();
@@ -199,7 +206,7 @@ window.fetch = (path, options) => {
     if(path !== '/result') throw Error('Hosted UI attempted an HTTP device operation');
     return peripheralFetch(path,options);
 };
-const pairedAccess=PAIRED_ACCESS;
+const pairedAccess=PAIRED_ACCESS, chooserRequired=CHOOSER_REQUIRED;
 let route, upload, response, status, offset, key='';
 const endpoints=['/profile','/networks','/saver','/profile','/saver','/exit','/shutdown-saver','/shutdown-saver','/access'];
 const characteristicMock={
@@ -233,10 +240,14 @@ const mockDevice=Object.assign(new EventTarget(),{
         disconnect:()=>mockDevice.dispatchEvent(new Event('gattserverdisconnected'))
     }
 });
-if(pairedAccess)localStorage.setItem('quack.lastDevice',mockDevice.id);
+
 Object.defineProperty(navigator,'bluetooth',{value:{
-    requestDevice:async()=>{if(pairedAccess)throw Error('Unexpected chooser');return mockDevice},
-    getDevices:async()=>[mockDevice]
+    requestDevice:async options=>{
+        if(pairedAccess && localStorage.getItem('quack.lastDevice') && (!chooserRequired || options.filters[0].name!==mockDevice.name))
+            throw Error('Unexpected chooser after refresh');
+        return mockDevice
+    },
+    getDevices:chooserRequired?undefined:async()=>[mockDevice]
 }});
 </script>"""
 
@@ -251,16 +262,23 @@ class PhoneSetup(unittest.TestCase):
     def test_paired_bluetooth_needs_no_browser_approval(self):
         self.exercise_page(bluetooth=True,paired=True)
 
+    def test_refresh_when_browser_requires_chooser(self):
+        self.exercise_page(bluetooth=True, paired=True, chooser=True)
+
     def test_lan_authorization(self):
         self.exercise_page(bluetooth=False,lan=True)
 
-    def exercise_page(self, bluetooth, lan=False, paired=False):
+    def exercise_page(self, bluetooth, lan=False, paired=False, chooser=False):
         page = PAGE.read_text()
         if bluetooth:
             page = page.replace('const sitePageUrl=new URL(location.href)', "const sitePageUrl=new URL('https://site.test/pocket/index.html?test=1')")
-            page = page.replace('<script>', BLUETOOTH.replace('PAIRED_ACCESS',str(paired).lower()) + '<script>', 1)
-            if not paired:
-                page = page.replace('</html>', "<script>document.getElementById('connect').click()</script></html>")
+            page = page.replace('<script>', BLUETOOTH.replace('PAIRED_ACCESS',str(paired).lower()).replace('CHOOSER_REQUIRED',str(chooser).lower()) + '<script>', 1)
+            if paired:
+                page = page.replace("function openSettings(){", """function openSettings(){
+                    if(!sessionStorage.getItem('reloaded')){
+                        sessionStorage.setItem('reloaded','1');location.reload();return;
+                    }""")
+            page = page.replace('</html>', "<script>if(!sessionStorage.getItem('reloaded'))document.getElementById('connect').click();else if(chooserRequired && !document.getElementById('reconnect').hidden)document.getElementById('reconnect').click()</script></html>")
         elif lan:
             page = page.replace('<head>', "<head><meta name='quack-transport' content='lan'><meta name='quack-unit' content='test'>")
         else:
