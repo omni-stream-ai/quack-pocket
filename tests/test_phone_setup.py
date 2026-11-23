@@ -84,10 +84,18 @@ PROBE = """<script>
         await wait(() => byId('standbyStatus').textContent === '待机时间已保存');
         document.querySelector('#overview a[href="#sdBrowser"]').click();
         await wait(()=>byId('sdEntries').children.length===1);
-        byId('sdEntries').querySelector('button').click();
+        byId('sdEntries').querySelector('.folder-use').click();
+        check(byId('chosenFolder').textContent.includes('/音乐'),'Folder action should name its target');
+        byId('pickDir').click();
+        check(location.hash==='#mediaConfig' && byId('musicDir').value==='音乐','Wrong folder draft');
+        document.querySelector('#overview a[href="#sdBrowser"]').click();
+        await wait(()=>!byId('sdBrowser').classList.contains('outside-category'));
+        byId('sdEntries').querySelector('li>button').click();
         await wait(()=>byId('sdPath').textContent==='/音乐');
-        byId('pickDir').click();byId('saveMedia').click();
+        byId('useCurrentFolder').click();byId('pickDir').click();byId('saveMedia').click();
         await wait(()=>byId('mediaStatus').textContent==='目录已保存');
+        document.querySelector('#overview a[href="#sdBrowser"]').click();
+        await wait(()=>!byId('sdBrowser').classList.contains('outside-category') && byId('sdStatus').textContent!=='正在读取…');
         byId('sdMore').click();await wait(()=>byId('sdEntries').children.length===2);
         byId('sdPath').querySelector('button').click();await wait(()=>byId('sdPath').textContent==='/');
         const named=(selector,title)=>[...document.querySelectorAll(selector)].find(b=>b.textContent===title);
@@ -102,6 +110,17 @@ PROBE = """<script>
         };
         byId('sdUpload').click();HTMLInputElement.prototype.click=originalClick;
         await wait(()=>named('#sdEntries button','预览'));
+        const menu=named('#sdEntries button','预览').closest('details');
+        menu.open=true;
+        const actions=menu.querySelector('.button-group');
+        actions.style.maxWidth='220px';
+        const rects=[...actions.children].map(button=>button.getBoundingClientRect());
+        check(rects[0].width>0 && rects.at(-1).top>rects[0].top,'Expected visible wrapped actions');
+        for(let i=1;i<rects.length;i++){
+            const prev=rects[i-1],next=rects[i];
+            check(next.left-prev.right>=8 || next.top-prev.bottom>=8,'Missing gap between file actions');
+        }
+        actions.style.maxWidth='';
         named('#sdEntries button','预览').click();await wait(()=>!byId('sdPreview').hidden);
         const editor=byId('sdPreviewBody').querySelector('textarea');check(editor.value==='hello','Wrong preview');
         editor.value='你好';named('#sdPreviewBody button','保存文本').click();
@@ -175,6 +194,17 @@ PROBE = """<script>
         pic.width=4;ctx.fillStyle='#888';ctx.fillRect(0,0,2,2);ctx.fillStyle='white';ctx.fillRect(2,0,2,2);
         const grayFiles=new DataTransfer();
         grayFiles.items.add(new File([await new Promise(resolve=>pic.toBlob(resolve))],'gray.png',{type:'image/png'}));
+        pic.width=pic.height=200;ctx.fillStyle='#666';ctx.fillRect(0,0,200,200);
+        ctx.fillStyle='#999';ctx.fillRect(70,20,60,160);
+        const edgeFiles=new DataTransfer();
+        edgeFiles.items.add(new File([await new Promise(resolve=>pic.toBlob(resolve))],'edge.png',{type:'image/png'}));
+        byId('photo').files=edgeFiles.files;byId('photo').dispatchEvent(new Event('change'));
+        check(!byId('imageLoading').hidden,'Missing image decoding feedback');
+        await wait(()=>!byId('applyImage').disabled);
+        check(byId('imageLoading').hidden,'Loading placeholder remained after preview');
+        const enhanced=byId('preview').toDataURL();
+        byId('sharpness').value='0';byId('sharpness').dispatchEvent(new Event('input'));
+        check(enhanced!==byId('preview').toDataURL(),'Edge enhancement should change a low-contrast outline');
         byId('photo').files=grayFiles.files;byId('photo').dispatchEvent(new Event('change'));
         await wait(()=>!byId('applyImage').disabled);
         const fitPreview=byId('preview').toDataURL();
