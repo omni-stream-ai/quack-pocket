@@ -68,16 +68,43 @@ small,.guide details{color:var(--muted)}small[role=status]{display:block;color:v
 .mic-icon{width:9px;height:13px;border:2px solid;border-radius:6px;margin:0 4px 4px}.mic-icon:before{content:"";position:absolute;left:-5px;top:5px;width:11px;height:8px;border:2px solid;border-top:0;border-radius:0 0 8px 8px}.mic-icon:after{content:"";position:absolute;top:14px;left:2px;height:3px;border-left:2px solid}
 @media(max-width:47rem){#appNav{position:fixed;left:50%;right:auto;bottom:calc(.65rem + env(safe-area-inset-bottom));width:min(calc(100% - 2rem),26rem);transform:translateX(-50%);border-radius:2rem;box-shadow:0 4px 20px #203c3324;background:#f8faf6}#appNav a{min-height:44px}}
 @media(prefers-reduced-motion:reduce){#appNav:before,#appNav a,#appNav i{transition:none}#appNav a:active i{transform:none}}
+
+:root{--ink:#203a31;--accent:#285444;--muted:#586c60;--line:#d6dfd4}
+body{max-width:64rem;background:#f4f5ef;font-family:"DM Sans","PingFang SC","Microsoft YaHei",sans-serif}
+header{max-width:52rem;margin:auto;padding:.65rem 0 1rem}.brand img{width:3rem}.brand{gap:.6rem}.brand h1{font-size:1.4rem}.brand p{font-size:.75rem;margin:0}
+#settings,.guide{max-width:52rem;margin:1.3rem auto}#guide{padding:0 0 1rem;background:#fff;border:1px solid var(--line);overflow:hidden}
+.connect-hero,.device-feature{background-color:#dbe9d8;background-image:radial-gradient(#60826a33 .8px,transparent .9px);background-size:8px 8px}
+.connect-hero{display:grid;grid-template-columns:1fr .9fr;align-items:center;min-height:18rem;gap:.5rem;padding:clamp(1.2rem,4vw,3rem)}
+.connect-hero h2,.feature-copy strong{font-family:"Bricolage Grotesque","PingFang SC","Microsoft YaHei",sans-serif;font-size:clamp(2rem,5vw,3.3rem);line-height:1.15;letter-spacing:-.045em}
+.connect-hero p{max-width:17em}.connect-hero button{border-radius:2rem;padding:.7rem 1.4rem}
+#guide details,#guide #feedback:not(:empty){margin:0 1.3rem;padding:.6rem 0;border-bottom:1px solid var(--line)}#guide details:last-child{border:0}
+.task-group{border:0;background:transparent;padding:0;overflow:visible;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.8rem}
+.task-group h2,.task-group #contentState,.task-group .feature,#quickLists{grid-column:1/-1}
+.task-group h2{font-size:clamp(1.85rem,4vw,2.6rem);padding:0;letter-spacing:-.045em}
+.task-group a{border:1px solid var(--line);border-radius:1.1rem;background:#fff;padding:1.1rem;display:flex;flex-wrap:wrap;min-height:4.6rem;align-content:center}
+.task-group a:not(.feature) small{width:100%;order:2;margin:0}.task-group a:not(.feature):after{margin-left:auto}.task-group a:hover{border-color:#91a997}
+.task-group a.feature{position:relative;isolation:isolate;overflow:hidden;border:0;display:grid;grid-template-columns:1fr .88fr;align-items:center;min-height:13rem;padding:clamp(1.2rem,4vw,2.5rem);gap:.8rem}
+.task-group a.feature:after{display:none}.feature-copy{display:grid;gap:.65rem}.task-group .feature small,.feature-copy>span{margin:0;color:inherit;font-size:.9rem;font-weight:500}
+.task-group .device-feature{background-color:#dbe9d8;background-image:radial-gradient(#60826a33 .8px,transparent .9px);background-size:8px 8px}
+.device-stage{display:grid;place-items:center;padding:.6rem;pointer-events:none}
+.pocket-shell{width:clamp(6rem,21vw,10rem);aspect-ratio:.91;position:relative;padding:8% 8% 12%;box-sizing:content-box;transform:rotate(8deg);background:linear-gradient(140deg,#fffef2,#eeeada);border:1px solid #c4c7b5;border-radius:19%;box-shadow:3px 5px 0 #afb3a5,8px 15px 18px #31463536}
+.pocket-glass{position:relative;width:100%;height:100%;background:#d6d9c9;border:5px solid #384036;border-radius:12%;display:grid;place-items:center;overflow:hidden;box-shadow:inset 1px 2px 4px #6e796952}
+.pocket-duck{width:70%;filter:grayscale(1);mix-blend-mode:multiply}.pocket-glass canvas{position:absolute;width:100%;height:100%;object-fit:contain;mix-blend-mode:multiply;image-rendering:pixelated}
+.speaker{position:absolute;bottom:5%;left:39%;width:22%;height:3%;border-radius:4px;background:repeating-linear-gradient(90deg,#737e70 0 2px,transparent 2px 4px)}
+.task-group .music-feature{background:#f1d69f;color:#493a26}.record{justify-self:center;width:clamp(6rem,19vw,10rem);aspect-ratio:1;border-radius:50%;background:radial-gradient(circle,#f0d7a9 0 3%,#ad6645 3% 25%,transparent 26%),repeating-radial-gradient(circle,#3c433c 0 2px,#303630 3px 5px);box-shadow:4px 8px 12px #604d2a32}
+.task-group .voice-feature{background:#284b43;color:#fff}.waveform{display:flex;align-items:center;justify-content:center;height:5rem;gap:3%;color:#d3e4ab}.waveform i{width:5%;height:var(--h);background:currentColor;border-radius:1rem}
+#quickLists{background:white;border:1px solid var(--line);border-radius:1rem;padding:.9rem 1.2rem}#quickLists h3{font-size:1rem}#quickTracks{display:flex;flex-wrap:wrap}#quickTracks button{background:#eff3e8;color:#314535}
+@media(max-width:47rem){.connect-hero{min-height:14rem}.task-group a.feature{min-height:10.5rem}#settings{margin-top:1rem}.task-group a:not(.feature){padding:.85rem;gap:.3rem}.feature-copy>span{font-size:.8rem}}
+@media(max-width:22rem){.task-group{grid-template-columns:1fr}.connect-hero{grid-template-columns:1.2fr 1fr}.pocket-shell{width:4.6rem}}
 </style></head><body>
-<header><div class="brand"><img id="brandIcon" width="80" height="80" alt=""><div><h1>嘎嘎口袋</h1><p>设备设置 · 网络、语音与墨水屏</p></div></div><div class="connection-tools"><p id="connection" role="status">准备连接设备…</p><button id="disconnect" hidden>断开蓝牙连接</button><button id="install" hidden>安装嘎嘎口袋</button></div></header>
-<section class="guide" id="guide" hidden><h2>连接附近的设备</h2><p>打开手机蓝牙，点「连接蓝牙设备」，选择附近的 Omni 设备。若列表为空，请检查鸭子「手机与网络 → 蓝牙开关」是否开启。</p>
-<p>系统提示配对时，输入墨水屏上「蓝牙配对」旁的<strong>六位数字</strong>。</p><button id="connect">连接蓝牙设备</button><p id="feedback" role="status"></p>
-<p>同一 Wi-Fi 下，也可在设备主菜单选择「手机与网络 → 同网扫码管理」，扫描屏幕上的网址。</p>
-<details><summary>用设备热点打开设置</summary>扫描墨水屏上的 Wi-Fi 二维码，加入热点后打开 <a href="http://192.168.4.1/">192.168.4.1</a>。</details></section>
+<header><div class="brand"><img id="brandIcon" width="80" height="80" alt=""><div><h1>嘎嘎口袋</h1><p>设备管理</p></div></div><div class="connection-tools"><p id="connection" role="status">准备连接设备…</p><button id="disconnect" hidden>断开蓝牙连接</button><button id="install" hidden>安装嘎嘎口袋</button></div></header>
+<section class="guide" id="guide" hidden><div class="connect-hero"><div><h2>连接你的<br>嘎嘎口袋</h2><p>打开设备蓝牙，在附近设备中选择 Omni。</p><button id="connect">连接蓝牙设备</button></div><div class="device-stage" aria-hidden="true"><div class="pocket-shell"><div class="pocket-glass"><img class="pocket-duck" alt=""></div><span class="speaker"></span></div></div></div><p id="feedback" role="status"></p>
+<details><summary>配对码在哪里？</summary><p>使用墨水屏「蓝牙配对」旁的六位数字。搜不到设备时，在机身「手机与网络 → 蓝牙开关」中开启蓝牙。</p></details>
+<details><summary>通过 Wi-Fi 连接</summary><p>同一 Wi-Fi 下，在机身选择「手机与网络 → 同网扫码管理」。使用设备热点时，扫描墨水屏上的 Wi-Fi 二维码，加入热点后打开 <a href="http://192.168.4.1/">192.168.4.1</a>。</p></details></section>
 <section class="guide" id="authorization" hidden><h2>授权此浏览器</h2>
 <label>在鸭子上显示的名称<input id="browserName" maxlength="16" placeholder="例如：妈妈的手机"></label>
 <button id="requestAccess">请求连接</button><p id="authStatus" role="status"></p></section>
-<form id="settings" hidden><nav id="appNav" aria-label="主导航"><a href="#device"><i class="device-icon" aria-hidden="true"></i>设备</a><a href="#media"><i class="folder-icon" aria-hidden="true"></i>内容</a><a href="#voice"><i class="mic-icon" aria-hidden="true"></i>语音</a></nav><nav id="overview" class="task-groups" aria-label="设备总览"><section class="task-group" id="media"><h2>我的内容</h2><p id="contentState" role="status">正在读取设备的内容功能…</p><a href="#library" data-sections="library mediaConfig">音乐与播放列表<small id="librarySummary"></small></a><a href="#sdBrowser" data-sections="sdBrowser">浏览 SD 卡</a><a href="#checklist" data-sections="checklist">口袋清单</a></section><section class="task-group" id="voice"><h2>语音设置</h2><a href="#service" data-sections="service llmSettings speechSettings standby">配置语音服务<small id="serviceSummary"></small></a><a href="#controls" data-sections="controls words">管理语音功能与技能</a></section><section class="task-group" id="device"><h2>我的设备</h2><a href="#wifi" data-sections="wifi bluetoothSettings">管理网络连接<small id="wifiSummary"></small></a><a href="#screen" data-sections="screen shutdownScreen">更换屏幕画面</a><a href="#updateSource" data-sections="updateSource">检查固件更新</a></section></nav><div id="taskBar" hidden><a href="#overview">‹ 设备总览</a><div id="taskTabs" aria-label="任务选项"></div></div><div class="settings-content">
+<form id="settings" hidden><nav id="appNav" aria-label="主导航"><a href="#device"><i class="device-icon" aria-hidden="true"></i>设备</a><a href="#media"><i class="folder-icon" aria-hidden="true"></i>内容</a><a href="#voice"><i class="mic-icon" aria-hidden="true"></i>语音</a></nav><nav id="overview" class="task-groups" aria-label="设备总览"><section class="task-group" id="media"><h2>我的内容</h2><p id="contentState" role="status">正在读取设备的内容功能…</p><a href="#library" data-sections="library mediaConfig" class="feature music-feature"><span class="feature-copy"><strong>音乐库</strong><small id="librarySummary"></small></span><span class="record" aria-hidden="true"></span></a><div id="quickLists" hidden><h3>播放歌单</h3><div id="quickTracks"></div><small id="quickStatus" role="status"></small></div><a href="#sdBrowser" data-sections="sdBrowser">浏览 SD 卡</a><a href="#checklist" data-sections="checklist">口袋清单</a></section><section class="task-group" id="voice"><h2>语音设置</h2><a href="#service" data-sections="service llmSettings speechSettings standby" class="feature voice-feature"><span class="feature-copy"><strong>语音服务</strong><small id="serviceSummary"></small></span><span class="waveform" aria-hidden="true"><i style="--h:21%"></i><i style="--h:37%"></i><i style="--h:64%"></i><i style="--h:45%"></i><i style="--h:84%"></i><i style="--h:100%"></i><i style="--h:60%"></i><i style="--h:41%"></i><i style="--h:77%"></i><i style="--h:52%"></i><i style="--h:30%"></i><i style="--h:15%"></i></span></a><a href="#controls" data-sections="controls words">管理语音功能与技能</a></section><section class="task-group" id="device"><h2>我的设备</h2><a class="feature device-feature" href="#screen" data-sections="screen shutdownScreen"><span class="feature-copy"><strong>墨水屏</strong><span>更换待机与关机画面</span></span><div class="device-stage" aria-hidden="true"><div class="pocket-shell"><div class="pocket-glass"><img class="pocket-duck" alt=""><canvas id="homeFrame" width="200" height="200" hidden></canvas></div><span class="speaker"></span></div></div></a><a href="#wifi" data-sections="wifi bluetoothSettings">管理网络连接<small id="wifiSummary"></small></a><a href="#updateSource" data-sections="updateSource">检查固件更新</a></section></nav><div id="taskBar" hidden><a href="#overview">‹ 设备总览</a><div id="taskTabs" aria-label="任务选项"></div></div><div class="settings-content">
 <fieldset id="wifi"><legend>无线网络</legend>
 <details id="picker" open><summary>附近的 2.4 GHz Wi-Fi</summary><div id="networks"></div></details>
 <button type="button" id="scan">刷新网络列表</button><small id="scanStatus" role="status"></small>
@@ -265,7 +292,7 @@ el('addSkill').onclick=()=>{
  list.value=[list.value.trim(),phrase+'='+el('newAction').value].filter(Boolean).join('\n');
  el('newPhrase').value='';el('controlsStatus').textContent='已添加，请保存语音功能';
 };
-const settingsLinks=Array.from(document.querySelectorAll('#overview a'));
+const settingsLinks=Array.from(document.querySelectorAll('#overview a[data-sections]'));
 function showCategory(){
  const target=document.getElementById(location.hash.slice(1))?.closest('fieldset');
  const selected=settingsLinks.find(link=>!link.hidden && link.dataset.sections.split(' ').includes(target?.id));
@@ -422,11 +449,11 @@ async function pocketAction(action, fields){
  return message;
 }
 let mediaFolders=null,favorites=[],searchNext,searchGeneration=0,searchQuery='';
-function mediaButton(row,title,action){
+function mediaButton(row,title,action,statusId){
  const button=document.createElement('button');button.type='button';button.textContent=title;
  button.onclick=async()=>{
   button.disabled=true;
-  const status=el(row.closest('#sdEntries')?'sdStatus':'libraryStatus');
+  const status=el(statusId||(row.closest('#sdEntries')?'sdStatus':'libraryStatus'));
   try{status.textContent=await action()}catch(e){status.textContent=e.message}
   finally{button.disabled=false}
  };
@@ -445,6 +472,10 @@ async function changePlaylist(operation,name,track=''){
 function renderPlaylists(preferred){
  el('librarySummary').textContent=Object.keys(playlists).length+' 个歌单';
  const select=el('playlistSelect'),names=Object.keys(playlists);
+ const shortcuts=el('quickTracks');shortcuts.replaceChildren();
+ const playable=names.filter(name=>playlists[name].length).slice(0,3);
+ el('quickLists').hidden=!playable.length;
+ for(const name of playable)mediaButton(shortcuts,'▷  '+name,()=>changePlaylist('play',name),'quickStatus');
  const selected=preferred||select.value;
  select.replaceChildren(...names.map(name=>new Option(name,name)));
  if(names.includes(selected))select.value=selected;
@@ -807,6 +838,12 @@ function saverEditor(path,suffix){
   }
   ctx.putImageData(frame,0,0);canvas.hidden=false;
  }
+ function updateHomeFrame(){
+  if(suffix)return;
+  const home=el('homeFrame');
+  home.hidden=field('preview').hidden;
+  if(!home.hidden)home.getContext('2d').drawImage(field('preview'),0,0);
+ }
  async function loadImage(){
   const current=++revision;
   const file=field('photo');file.disabled=true;
@@ -814,11 +851,14 @@ function saverEditor(path,suffix){
   try{
    const r=await deviceRequest(path,{cache:'no-store'});
    if(current!==revision)return;
-   if(r.status===204){field('preview').hidden=true;return}
+   if(r.status===204){field('preview').hidden=true;updateHomeFrame();return}
    if(!r.ok)throw Error();
    const bits=new Uint8Array(await r.arrayBuffer());
    if(bits.length!==5000)throw Error();
-   if(current===revision)paintBits(bits);
+   if(current===revision){
+    paintBits(bits);
+    updateHomeFrame();
+   }
   }catch{if(current===revision)field('imageStatus').textContent='无法读取当前画面。'}
   finally{if(current===revision)file.disabled=field('clearImage').disabled=false}
  }
@@ -853,7 +893,7 @@ function saverEditor(path,suffix){
    const msg=await r.text();if(!r.ok)throw Error(msg);
    if(current!==revision)return;
    imageBits=null;field('imageStatus').textContent=msg;
-   if(clear){file.value='';await loadImage()}
+   if(clear){file.value='';await loadImage()}else updateHomeFrame();
   }catch(e){if(current===revision)field('imageStatus').textContent=e.message}
   finally{if(current===revision){remove.disabled=file.disabled=false;apply.disabled=!imageBits}}
  }
@@ -894,7 +934,7 @@ const lanDevice = document.querySelector('meta[name=quack-transport]')?.content 
 const localDevice = lanDevice || location.hostname === '192.168.4.1';
 const sitePageUrl=new URL(location.href);
 el('useSiteUpdates').hidden=localDevice||sitePageUrl.protocol!=='https:';
-el('brandIcon').src=document.querySelector('link[rel="icon"]').href;
+for(const img of [el('brandIcon'),...document.querySelectorAll('.pocket-duck')])img.src=document.querySelector('link[rel="icon"]').href;
 if(!localDevice && window.isSecureContext){
  for(const [rel,href] of [['manifest','./manifest.webmanifest'],['apple-touch-icon','./icons/quack-pocket-180.png']]){
   const link=document.createElement('link');link.rel=rel;link.href=href;document.head.append(link);
@@ -1028,7 +1068,7 @@ function disconnectManually(){
 el('disconnect').onclick=disconnectManually;
 function disconnected(event){
  if(event && event.target!==device)return;
- ++profileGeneration;device=null;
+ ++profileGeneration;device=null;el('homeFrame').hidden=true;
  el('disconnect').hidden=true;
  ++cardConnection;if(transfer)transfer.cancelled=true;closePreview();
  ++searchGeneration;el('searchHits').replaceChildren();el('moreMusic').hidden=true;
@@ -1083,7 +1123,7 @@ if(lanDevice){
  }catch{}
  el('guide').hidden=false;el('connection').textContent='通过蓝牙管理身边的嘎嘎口袋';
  if(!window.isSecureContext || !navigator.bluetooth){
-  el('connect').disabled=true;el('guide').querySelector('details').open=true;
+  el('connect').disabled=true;el('guide').querySelector('details:last-child').open=true;
   el('feedback').textContent=window.isSecureContext?'此浏览器不支持网页蓝牙。可使用 Android Chrome，或按下方说明连接热点。':'网页蓝牙需要 HTTPS，请使用本站的 HTTPS 地址或连接设备热点。';
 
  }

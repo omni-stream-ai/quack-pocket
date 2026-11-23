@@ -34,6 +34,8 @@ PROBE = """<script>
         check(byId('overview').hidden && !byId('taskBar').hidden,'Expected a task screen');
         byId('taskBar').querySelector('a').click();
         await wait(()=>!byId('overview').hidden);
+        byId('quickTracks').querySelector('button').click();
+        await wait(()=>byId('quickStatus').textContent==='歌单已播放');
         const auto=byId('autoUpdate');
         check(!byId('autoUpdateOption').hidden && !auto.checked,'Automatic checks should default off');
         for(const enabled of [true,false]){
@@ -161,6 +163,7 @@ PROBE = """<script>
         check(!byId('xiaozhiHelp').hidden && byId('xiaozhiHelp').querySelector('a').href === 'https://xiaozhi.me/console/', 'Official console link missing');
         await wait(() => !byId('photo').disabled && !byId('photoOff').disabled);
         const standbyDefault=byId('preview').toDataURL(),shutdownDefault=byId('previewOff').toDataURL();
+        check(byId('homeFrame').toDataURL()===standbyDefault,'Home preview differs from device');
         check(standbyDefault!==shutdownDefault,'Default ducks must differ');
         const pic=document.createElement('canvas');pic.width=pic.height=2;
         const ctx=pic.getContext('2d');ctx.fillStyle='black';ctx.fillRect(0,0,2,2);
@@ -169,6 +172,7 @@ PROBE = """<script>
         byId('photo').files=files.files;byId('photo').dispatchEvent(new Event('change'));
         await wait(()=>!byId('applyImage').disabled);byId('applyImage').click();
         await wait(()=>byId('imageStatus').textContent==='屏保已保存');
+        check(byId('homeFrame').toDataURL()===byId('preview').toDataURL(),'Saved image missing on home screen');
         check(byId('previewOff').toDataURL()===shutdownDefault,'Standby upload changed shutdown');
         byId('photoOff').files=files.files;byId('photoOff').dispatchEvent(new Event('change'));
         await wait(()=>!byId('applyImageOff').disabled);byId('applyImageOff').click();
@@ -330,6 +334,7 @@ class PhoneSetup(unittest.TestCase):
                     Handler.reads += 1
                     profile = dict(auto_update=False,protocol="responses", separate_model_settings=True, bluetooth_enabled=False, update_url="https://device.test/manifest.json", standby_minutes=5, url="wss://saved.test/device", has_token=True, has_wifi=True, model="chat", saved_wifi=networks,
                                    offline_words="播放\n暂停\n下一首\n上一首\n加音量\n降音量")
+                    profile["playlists"] = {"晨间": ["音乐/晴天.mp3"]}
                     profile["voice_controls"] = dict(music=True, volume=True, state=True, skills=[])
                     profile.update(media=dict(music="",stories="故事",messages="留言",minutes=15,
                                               record_seconds=60,chapter_stop=True),sd_browser=True,sd_manage=True,checklist=[],favorites=[])
@@ -417,6 +422,8 @@ class PhoneSetup(unittest.TestCase):
                         return self.reply(200,"text/plain","目录已保存")
                     if action == "search_music" and payload["query"] == "晴天":
                         return self.reply(200,"application/json",json.dumps({"entries":["音乐/晴天.mp3"]}))
+                    if action == "playlist" and payload.get("operation") == "play" and payload.get("name") == "晨间":
+                        return self.reply(200,"text/plain","歌单已播放")
                     if action in ("play_media","favorite") and payload["path"] == "音乐/晴天.mp3":
                         return self.reply(200,"text/plain","播放已排队" if action == "play_media" else "已更新收藏")
                     if action == "checklist" and payload["items"] == ["水杯","钥匙"]:
