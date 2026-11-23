@@ -73,10 +73,16 @@ void Dispatch(void* argument) {
     std::unique_ptr<Transaction> request(static_cast<Transaction*>(argument));
     std::string result;
     int code = enabled ? DispatchManagement(request->route,request->body,result) : 503;
+    if (result.size() > UINT16_MAX) {
+        code = 413;
+        result = "设置数据超过蓝牙传输上限，请使用同网管理";
+    }
+    if (code == 503 && result.empty()) result = "设备蓝牙管理未就绪";
+    if (code >= 400) ESP_LOGW("setup_ble", "route %u returned %d", request->route, code);
     {
         std::lock_guard<std::mutex> guard(lock);
         if (generation == request->generation) {
-            reply = code == 503 ? "设备暂时忙，请重试" : std::move(result);
+            reply = std::move(result);
             status = code;
         }
         running = false;
@@ -207,14 +213,17 @@ int DispatchManagement(unsigned index,const std::string& body,std::string& resul
     if (index >= sizeof(routes)/sizeof(Route) || body.size()>25000) return 400;
     auto route = routes[index];
     if (!strcmp(route.path,"/access")) { result="已授权"; return 200; }
+    if (!route.post && !strcmp(route.path,"/profile")) return ReadPairedBluetoothProfile(result);
     auto port = BluetoothSetupPort(setup_display);
+    if (!port) { result="设备内的管理服务启动失败"; return 503; }
     std::string url = "http://127.0.0.1:" + std::to_string(port) + route.path;
     esp_http_client_config_t config{};
     config.url = url.c_str();
     config.timeout_ms = 10000;
     config.event_handler = Collect;
     config.user_data = &result;
-    auto client = port ? esp_http_client_init(&config) : nullptr;
+    auto client = esp_http_client_init(&config);
+    if (!client) { result="内存不足，无法创建管理请求"; return 503; }
     int code = 503;
     if (client) {
         esp_http_client_set_header(client,"X-Pocket-BLE",BridgeSecret().c_str());
@@ -224,7 +233,9 @@ int DispatchManagement(unsigned index,const std::string& body,std::string& resul
                                        "application/octet-stream" : "application/json");
             esp_http_client_set_post_field(client, body.data(), body.size());
         }
-        if (esp_http_client_perform(client) == ESP_OK) code = esp_http_client_get_status_code(client);
+        auto err = esp_http_client_perform(client);
+        if (err == ESP_OK) code = esp_http_client_get_status_code(client);
+        else result = std::string("设备内部管理连接失败 · ") + esp_err_to_name(err);
         esp_http_client_cleanup(client);
     }
     return code;

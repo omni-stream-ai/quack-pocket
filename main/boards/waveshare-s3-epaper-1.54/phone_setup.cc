@@ -188,15 +188,13 @@ esp_err_t Networks(httpd_req_t* req) {
     return data ? Reply(req, "application/json", data.get()) : ESP_ERR_NO_MEM;
 }
 
-esp_err_t Profile(httpd_req_t* req) {
-    if (!SetupRequestAllowed(req)) return ESP_OK;
-    ManagementRequest activity(req);
+int BuildProfile(std::string& body) {
     auto profile = VoiceProfile::Load();
     Json object(cJSON_CreateObject(), cJSON_Delete);
-    if (!object) return ESP_ERR_NO_MEM;
+    if (!object) { body="生成设备设置时内存不足"; return 503; }
     cJSON_AddBoolToObject(object.get(), "wake_enabled", Settings("omni_ui").GetInt("wake", 1));
     cJSON_AddBoolToObject(object.get(),"bluetooth_enabled",SetupBluetoothEnabled());
-    if (!pocket_library::AddProfile(object.get())) return Bad(req, "读取媒体设置失败");
+    if (!pocket_library::AddProfile(object.get())) { body="读取媒体设置失败"; return 500; }
     cJSON_AddStringToObject(object.get(), "offline_words", ReadOfflineWords().c_str());
     int minutes = Settings("omni_ui").GetInt("standby_min", standby::default_minutes);
     cJSON_AddNumberToObject(object.get(), "standby_minutes", standby::Valid(minutes) ? minutes : standby::default_minutes);
@@ -210,28 +208,42 @@ esp_err_t Profile(httpd_req_t* req) {
     cJSON_AddStringToObject(object.get(), "url", profile.url.c_str());
     cJSON_AddBoolToObject(object.get(), "has_token", !profile.token.empty());
     std::vector<std::string> names;
-    if (!VoiceProfile::ReadWifiNames(names)) return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "读取网络列表失败");
+    if (!VoiceProfile::ReadWifiNames(names)) { body="读取网络列表失败"; return 500; }
     auto* list = cJSON_AddArrayToObject(object.get(), "saved_wifi");
-    if (!list) return ESP_ERR_NO_MEM;
+    if (!list) { body="生成设备设置时内存不足"; return 503; }
     for (const auto& name : names) cJSON_AddItemToArray(list, cJSON_CreateString(name.c_str()));
     cJSON_AddBoolToObject(object.get(), "has_wifi", !names.empty());
     std::unique_ptr<char, decltype(&cJSON_free)> data(cJSON_PrintUnformatted(object.get()), cJSON_free);
-    if (!data) return ESP_ERR_NO_MEM;
-    // ESP-IDF discards request headers after the response is sent.
-    auto browser = req->user_ctx ? BrowserKey(req) : std::string();
-    auto result = Reply(req, "application/json", data.get());
-    if (result == ESP_OK) {
-        std::lock_guard<std::mutex> guard(policy_mutex);
-        if (lan_mode == FirstConnection) {
-            Settings("omni_ui",true).SetInt("lan_background",FirstConnectionUsed);
-            lan_mode = FirstConnectionUsed;
-            if (req->user_ctx) {
-                first_server = req->handle;
-                first_browser = std::move(browser);
-                first_deadline = esp_timer_get_time() + presence_grace_us;
-            }
+    if (!data) { body="生成设备设置时内存不足"; return 503; }
+    body.assign(data.get());
+    return 200;
+}
+
+void MarkProfileRead(httpd_handle_t server, std::string browser) {
+    std::lock_guard<std::mutex> guard(policy_mutex);
+    if (lan_mode == FirstConnection) {
+        Settings("omni_ui",true).SetInt("lan_background",FirstConnectionUsed);
+        lan_mode = FirstConnectionUsed;
+        if (server) {
+            first_server = server;
+            first_browser = std::move(browser);
+            first_deadline = esp_timer_get_time() + presence_grace_us;
         }
     }
+}
+
+esp_err_t Profile(httpd_req_t* req) {
+    if (!SetupRequestAllowed(req)) return ESP_OK;
+    ManagementRequest activity(req);
+    std::string body;
+    int code = BuildProfile(body);
+    if (code != 200) {
+        httpd_resp_set_status(req, code == 503 ? "503 Service Unavailable" : "500 Internal Server Error");
+        return Reply(req, "text/plain; charset=utf-8", body.c_str());
+    }
+    auto browser = req->user_ctx ? BrowserKey(req) : std::string();
+    auto result = Reply(req, "application/json", body.c_str());
+    if (result == ESP_OK) MarkProfileRead(req->user_ctx ? req->handle : nullptr, std::move(browser));
     return result;
 }
 
@@ -464,6 +476,12 @@ esp_err_t LoopbackOnly(httpd_handle_t, int fd) {
     }
     return ESP_FAIL;
 }
+}
+
+int ReadPairedBluetoothProfile(std::string& body) {
+    int code = BuildProfile(body);
+    if (code == 200) MarkProfileRead(nullptr, {});
+    return code;
 }
 
 int BluetoothSetupPort(CustomLcdDisplay* display) {

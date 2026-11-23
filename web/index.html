@@ -58,6 +58,16 @@ small,.guide details{color:var(--muted)}small[role=status]{display:block;color:v
 }
 .task-group a small{margin-left:auto;color:var(--muted);font-size:.83rem;font-weight:400}.task-group a{gap:.75rem}.task-group a:after{margin-left:auto}.task-group a:has(small):after{margin-left:0}
 #overview:not([hidden]) + #taskBar + .settings-content{margin-top:1rem}#contentState{padding:.3rem 0 1rem;color:var(--muted)}
+
+#appNav{--rail-pad:4px;position:relative;isolation:isolate;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));box-sizing:border-box;padding:var(--rail-pad);gap:0;background:#e5ece4}
+#appNav:before{content:"";position:absolute;z-index:-1;top:var(--rail-pad);bottom:var(--rail-pad);left:var(--rail-pad);width:calc((100% - 2 * var(--rail-pad))/3);border-radius:2rem;background:#294b41;transform:translateX(calc(var(--tab,0)*100%));transition:transform .24s cubic-bezier(.2,.8,.25,1)}
+#appNav a{display:flex;align-items:center;justify-content:center;gap:.5rem;transition:color .18s}
+#appNav a[aria-current]{background:transparent;color:white}#appNav i{position:relative;display:inline-block;box-sizing:border-box;color:inherit;transition:transform .2s}#appNav a:active i{transform:scale(.86)}
+.device-icon{width:15px;height:19px;border:2px solid;border-radius:4px}.device-icon:after{content:"";position:absolute;bottom:2px;left:4px;width:3px;height:2px;background:currentColor}
+.folder-icon{width:19px;height:13px;border:2px solid;border-radius:2px;margin-top:3px}.folder-icon:before{content:"";position:absolute;left:-2px;top:-5px;width:8px;height:3px;border:2px solid;border-bottom:0;border-radius:3px 3px 0 0}
+.mic-icon{width:9px;height:13px;border:2px solid;border-radius:6px;margin:0 4px 4px}.mic-icon:before{content:"";position:absolute;left:-5px;top:5px;width:11px;height:8px;border:2px solid;border-top:0;border-radius:0 0 8px 8px}.mic-icon:after{content:"";position:absolute;top:14px;left:2px;height:3px;border-left:2px solid}
+@media(max-width:47rem){#appNav{position:fixed;left:50%;right:auto;bottom:calc(.65rem + env(safe-area-inset-bottom));width:min(calc(100% - 2rem),26rem);transform:translateX(-50%);border-radius:2rem;box-shadow:0 4px 20px #203c3324;background:#f8faf6}#appNav a{min-height:44px}}
+@media(prefers-reduced-motion:reduce){#appNav:before,#appNav a,#appNav i{transition:none}#appNav a:active i{transform:none}}
 </style></head><body>
 <header><div class="brand"><img id="brandIcon" width="80" height="80" alt=""><div><h1>嘎嘎口袋</h1><p>设备设置 · 网络、语音与墨水屏</p></div></div><div class="connection-tools"><p id="connection" role="status">准备连接设备…</p><button id="disconnect" hidden>断开蓝牙连接</button><button id="install" hidden>安装嘎嘎口袋</button></div></header>
 <section class="guide" id="guide" hidden><h2>连接附近的设备</h2><p>打开手机蓝牙，点「连接蓝牙设备」，选择附近的 Omni 设备。若列表为空，请检查鸭子「手机与网络 → 蓝牙开关」是否开启。</p>
@@ -67,7 +77,7 @@ small,.guide details{color:var(--muted)}small[role=status]{display:block;color:v
 <section class="guide" id="authorization" hidden><h2>授权此浏览器</h2>
 <label>在鸭子上显示的名称<input id="browserName" maxlength="16" placeholder="例如：妈妈的手机"></label>
 <button id="requestAccess">请求连接</button><p id="authStatus" role="status"></p></section>
-<form id="settings" hidden><nav id="appNav" aria-label="主导航"><a href="#device">设备</a><a href="#media">内容</a><a href="#voice">语音</a></nav><nav id="overview" class="task-groups" aria-label="设备总览"><section class="task-group" id="media"><h2>我的内容</h2><p id="contentState" role="status">正在读取设备的内容功能…</p><a href="#library" data-sections="library mediaConfig">音乐与播放列表<small id="librarySummary"></small></a><a href="#sdBrowser" data-sections="sdBrowser">浏览 SD 卡</a><a href="#checklist" data-sections="checklist">口袋清单</a></section><section class="task-group" id="voice"><h2>语音设置</h2><a href="#service" data-sections="service llmSettings speechSettings standby">配置语音服务<small id="serviceSummary"></small></a><a href="#controls" data-sections="controls words">管理语音功能与技能</a></section><section class="task-group" id="device"><h2>我的设备</h2><a href="#wifi" data-sections="wifi bluetoothSettings">管理网络连接<small id="wifiSummary"></small></a><a href="#screen" data-sections="screen shutdownScreen">更换屏幕画面</a><a href="#updateSource" data-sections="updateSource">检查固件更新</a></section></nav><div id="taskBar" hidden><a href="#overview">‹ 设备总览</a><div id="taskTabs" aria-label="任务选项"></div></div><div class="settings-content">
+<form id="settings" hidden><nav id="appNav" aria-label="主导航"><a href="#device"><i class="device-icon" aria-hidden="true"></i>设备</a><a href="#media"><i class="folder-icon" aria-hidden="true"></i>内容</a><a href="#voice"><i class="mic-icon" aria-hidden="true"></i>语音</a></nav><nav id="overview" class="task-groups" aria-label="设备总览"><section class="task-group" id="media"><h2>我的内容</h2><p id="contentState" role="status">正在读取设备的内容功能…</p><a href="#library" data-sections="library mediaConfig">音乐与播放列表<small id="librarySummary"></small></a><a href="#sdBrowser" data-sections="sdBrowser">浏览 SD 卡</a><a href="#checklist" data-sections="checklist">口袋清单</a></section><section class="task-group" id="voice"><h2>语音设置</h2><a href="#service" data-sections="service llmSettings speechSettings standby">配置语音服务<small id="serviceSummary"></small></a><a href="#controls" data-sections="controls words">管理语音功能与技能</a></section><section class="task-group" id="device"><h2>我的设备</h2><a href="#wifi" data-sections="wifi bluetoothSettings">管理网络连接<small id="wifiSummary"></small></a><a href="#screen" data-sections="screen shutdownScreen">更换屏幕画面</a><a href="#updateSource" data-sections="updateSource">检查固件更新</a></section></nav><div id="taskBar" hidden><a href="#overview">‹ 设备总览</a><div id="taskTabs" aria-label="任务选项"></div></div><div class="settings-content">
 <fieldset id="wifi"><legend>无线网络</legend>
 <details id="picker" open><summary>附近的 2.4 GHz Wi-Fi</summary><div id="networks"></div></details>
 <button type="button" id="scan">刷新网络列表</button><small id="scanStatus" role="status"></small>
@@ -279,6 +289,7 @@ function showCategory(){
   panel.hidden=panel!==group;
   if(panel===group)tab.setAttribute('aria-current','page');else tab.removeAttribute('aria-current');
  }
+ el('appNav').style.setProperty('--tab',String(['device','media','voice'].indexOf(group.id)));
  const back=el('taskBar').querySelector('a');
  back.href='#'+group.id;back.textContent='‹ '+group.querySelector('h2').textContent;
 }
