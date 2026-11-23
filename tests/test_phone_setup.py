@@ -184,10 +184,18 @@ PROBE = """<script>
         await wait(() => byId('status').textContent === '已保存');
         check(byId('save').disabled, 'Duplicate save possible during reboot');
         if(typeof pairedAccess!=='undefined' && pairedAccess){
-            byId('disconnect').click();
+            window.confirm=()=>false;byId('disconnect').click();
+            check(!byId('settings').hidden,'Cancel closed the connection');
+            window.confirm=()=>true;byId('disconnect').click();
             check(byId('settings').hidden && !byId('guide').hidden,'Missing connection screen');
             byId('connect').click();
             await wait(()=>!byId('settings').hidden);
+        }
+        if(typeof pairedAccess==='undefined'){
+            window.confirm=()=>false;byId('disconnect').click();
+            check(!byId('settings').hidden,'Cancel exited Wi-Fi management');
+            window.confirm=()=>true;byId('disconnect').click();
+            await wait(()=>!byId('sessionEnded').hidden && byId('settings').hidden);
         }
         await fetch('/result', {method: 'POST', body: 'PASS'});
     } catch (error) {
@@ -367,6 +375,8 @@ class PhoneSetup(unittest.TestCase):
                 if self.path!="/result" and ((bluetooth and not paired) or lan) and key not in authorized:
                     self.reply(403,"text/plain","unauthorized")
                     return
+                if self.path == "/exit":
+                    return self.reply(200,"text/plain","已退出设置")
                 if self.path in slots:
                     saved_images[self.path] = data
                     bitmaps.append((self.path, data))

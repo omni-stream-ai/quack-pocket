@@ -36,7 +36,7 @@ textarea{resize:vertical}input[type=checkbox]{display:inline-block;width:1.15rem
 #controls label:has(input[type=checkbox]){padding:.65rem .8rem;background:#f1f6f4;border-radius:.55rem}
 button{margin:.35rem .2rem .25rem 0;padding:.58rem 1rem;min-height:2.65rem;border:1px solid transparent;border-radius:.6rem;line-height:1.35;font-family:inherit;font-size:.95rem;font-weight:650;color:white;background:var(--accent);cursor:pointer}
 button:enabled:hover{filter:brightness(.93)}button:disabled{opacity:.52;cursor:default}
-#scan,#leave,#clearImage,#clearImageOff,#retry,#savedWifi button,#networks button{background:#edf3f0;color:var(--ink);border-color:var(--line)}
+#scan,#clearImage,#clearImageOff,#retry,#savedWifi button,#networks button{background:#edf3f0;color:var(--ink);border-color:var(--line)}
 :focus-visible{outline:3px solid #c38322;outline-offset:3px}
 small,.guide details{color:var(--muted)}small[role=status]{display:block;color:var(--accent)}summary{padding:.55rem 0;cursor:pointer;font-weight:600}
 #networks{display:flex;flex-wrap:wrap}#savedWifi>div{display:flex;align-items:center;justify-content:space-between;gap:.7rem;overflow-wrap:anywhere}
@@ -50,7 +50,7 @@ small,.guide details{color:var(--muted)}small[role=status]{display:block;color:v
 #appNav a[aria-current]{color:white;background:#294b41}
 .task-groups{display:block}.task-group{padding:.8rem 1.1rem 0}.task-group h2{font-size:1.6rem;color:#213c32;padding:.5rem 0 1rem}
 .task-group a{padding:1.1rem 0}.save-panel:has(#restartActions[hidden]):has(#retry[hidden]):has(#status:empty){background:transparent;border:0;box-shadow:none;padding:.4rem 0}
-.save-panel:has(#restartActions[hidden]):has(#retry[hidden]):has(#leave[hidden]):has(#status:empty){display:none}
+.save-panel:has(#restartActions[hidden]):has(#retry[hidden]):has(#status:empty){display:none}
 @media(max-width:47rem){
  #settings{padding-bottom:calc(5rem + env(safe-area-inset-bottom))}
  #appNav{position:fixed;z-index:4;bottom:0;left:0;right:0;width:auto;padding:.55rem 1rem calc(.55rem + env(safe-area-inset-bottom));margin:0;border-radius:1rem 1rem 0 0;background:#f8faf6;border:1px solid var(--line);box-shadow:0 -3px 16px #1839290a}
@@ -96,15 +96,34 @@ header{max-width:52rem;margin:auto;padding:.65rem 0 1rem}.brand img{width:3rem}.
 #quickLists{background:white;border:1px solid var(--line);border-radius:1rem;padding:.9rem 1.2rem}#quickLists h3{font-size:1rem}#quickTracks{display:flex;flex-wrap:wrap}#quickTracks button{background:#eff3e8;color:#314535}
 @media(max-width:47rem){.connect-hero{min-height:14rem}.task-group a.feature{min-height:10.5rem}#settings{margin-top:1rem}.task-group a:not(.feature){padding:.85rem;gap:.3rem}.feature-copy>span{font-size:.8rem}}
 @media(max-width:22rem){.task-group{grid-template-columns:1fr}.connect-hero{grid-template-columns:1.2fr 1fr}.pocket-shell{width:4.6rem}}
+
+#connection,.detail-view fieldset>legend{position:absolute;clip-path:inset(50%);width:1px;height:1px;overflow:hidden;white-space:nowrap;margin:0;padding:0;border:0}
+header{display:flex;flex-wrap:nowrap;align-items:center}#disconnect{width:44px;height:44px;padding:10px;margin:0;background:#fff;border:1px solid var(--line);border-radius:50%;color:#365442}
+#disconnect svg,.entry-icon svg{width:100%;height:100%;display:block}
+.task-group a:has(.entry-icon){position:relative;align-content:start;display:grid;justify-content:start;grid-template-columns:1fr;gap:.5rem;padding:1rem 1.15rem;min-height:7.6rem;transition:transform .18s,border-color .18s}
+.task-group a:has(.entry-icon):after{position:absolute;right:1rem;top:.9rem;color:#688071}
+.task-group .entry-icon{display:grid;place-items:center;width:2.35rem;height:2.35rem;padding:.5rem;border-radius:.8rem;background:#e2ebe1;color:#315741}
+#media .entry-icon{background:#f7e9cd;color:#745623}#voice .entry-icon{background:#d9eae4;color:#255345}
+.entry-name{line-height:1.35}.task-group a:has(.entry-icon) small{line-height:1.3}
+.detail-view #appNav{display:none}.detail-view{padding-bottom:1rem!important}
+#taskBar{display:grid;gap:.9rem;margin:1rem 0}#taskBar>a{justify-self:start;font-weight:600;font-size:.9rem;text-decoration:none}#taskBar h2{font-size:clamp(1.7rem,4vw,2.5rem);line-height:1.15;letter-spacing:-.04em}
+#taskTabs{display:flex;gap:.3rem;padding:.25rem;background:#e5ece3;border-radius:.8rem;justify-self:start;max-width:100%}#taskTabs:empty{display:none}#taskTabs a{font-size:.86rem;border-radius:.6rem;padding:.5rem .7rem;background:transparent}#taskTabs a[aria-current]{background:white;color:#234332;box-shadow:0 1px 4px #27422a21}
+.detail-view fieldset{padding:clamp(1rem,3vw,1.65rem);border-radius:1.1rem}.detail-view fieldset label{margin:.9rem 0;font-weight:650}
+.detail-view :is(input:not([type=checkbox]),textarea,select){border-color:#b8c8bc;background:#f9fbf8;min-height:2.8rem;border-radius:.65rem}
+.detail-view :is(input:not([type=checkbox]),textarea,select):focus-visible{outline:2px solid #46745b;outline-offset:1px;background:white}
+.detail-view :is(button[id^=save],#applyImage,#applyImageOff){display:block;width:100%;margin:1.2rem 0 .25rem;padding:.8rem;background:#284d39;border-radius:.75rem}
+.detail-view .save-panel{border:1px solid var(--line);padding:1.1rem}.detail-view #status:empty{margin:0}
+@media(prefers-reduced-motion:no-preference){.task-group a:has(.entry-icon):active{transform:scale(.98)}.detail-view fieldset:not(.outside-category){animation:detail-in .18s ease-out}@keyframes detail-in{from{opacity:.5;transform:translateY(4px)}to{opacity:1;transform:none}}}
 </style></head><body>
-<header><div class="brand"><img id="brandIcon" width="80" height="80" alt=""><div><h1>嘎嘎口袋</h1><p>设备管理</p></div></div><div class="connection-tools"><p id="connection" role="status">准备连接设备…</p><button id="disconnect" hidden>断开蓝牙连接</button><button id="install" hidden>安装嘎嘎口袋</button></div></header>
+<header><div class="brand"><img id="brandIcon" width="80" height="80" alt=""><div><h1>嘎嘎口袋</h1><p>设备管理</p></div></div><div class="connection-tools"><p id="connection" role="status">准备连接设备…</p><button id="disconnect" type="button" title="退出设备管理" aria-label="退出设备管理" hidden><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M10 4H5v16h5m4-13 5 5-5 5m-6-5h11"/></svg></button></div></header>
 <section class="guide" id="guide" hidden><div class="connect-hero"><div><h2>连接你的<br>嘎嘎口袋</h2><p>打开设备蓝牙，在附近设备中选择 Omni。</p><button id="connect">连接蓝牙设备</button></div><div class="device-stage" aria-hidden="true"><div class="pocket-shell"><div class="pocket-glass"><img class="pocket-duck" alt=""></div><span class="speaker"></span></div></div></div><p id="feedback" role="status"></p>
 <details><summary>配对码在哪里？</summary><p>使用墨水屏「蓝牙配对」旁的六位数字。搜不到设备时，在机身「手机与网络 → 蓝牙开关」中开启蓝牙。</p></details>
-<details><summary>通过 Wi-Fi 连接</summary><p>同一 Wi-Fi 下，在机身选择「手机与网络 → 同网扫码管理」。使用设备热点时，扫描墨水屏上的 Wi-Fi 二维码，加入热点后打开 <a href="http://192.168.4.1/">192.168.4.1</a>。</p></details></section>
+<details><summary>通过 Wi-Fi 连接</summary><p>同一 Wi-Fi 下，在机身选择「手机与网络 → 同网扫码管理」。使用设备热点时，扫描墨水屏上的 Wi-Fi 二维码，加入热点后打开 <a href="http://192.168.4.1/">192.168.4.1</a>。</p></details><button id="install" hidden>安装嘎嘎口袋</button></section>
+<section class="guide" id="sessionEnded" hidden><h2>已退出设备管理</h2><button type="button" id="enterAgain">重新进入</button></section>
 <section class="guide" id="authorization" hidden><h2>授权此浏览器</h2>
 <label>在鸭子上显示的名称<input id="browserName" maxlength="16" placeholder="例如：妈妈的手机"></label>
 <button id="requestAccess">请求连接</button><p id="authStatus" role="status"></p></section>
-<form id="settings" hidden><nav id="appNav" aria-label="主导航"><a href="#device"><i class="device-icon" aria-hidden="true"></i>设备</a><a href="#media"><i class="folder-icon" aria-hidden="true"></i>内容</a><a href="#voice"><i class="mic-icon" aria-hidden="true"></i>语音</a></nav><nav id="overview" class="task-groups" aria-label="设备总览"><section class="task-group" id="media"><h2>我的内容</h2><p id="contentState" role="status">正在读取设备的内容功能…</p><a href="#library" data-sections="library mediaConfig" class="feature music-feature"><span class="feature-copy"><strong>音乐库</strong><small id="librarySummary"></small></span><span class="record" aria-hidden="true"></span></a><div id="quickLists" hidden><h3>播放歌单</h3><div id="quickTracks"></div><small id="quickStatus" role="status"></small></div><a href="#sdBrowser" data-sections="sdBrowser">浏览 SD 卡</a><a href="#checklist" data-sections="checklist">口袋清单</a></section><section class="task-group" id="voice"><h2>语音设置</h2><a href="#service" data-sections="service llmSettings speechSettings standby" class="feature voice-feature"><span class="feature-copy"><strong>语音服务</strong><small id="serviceSummary"></small></span><span class="waveform" aria-hidden="true"><i style="--h:21%"></i><i style="--h:37%"></i><i style="--h:64%"></i><i style="--h:45%"></i><i style="--h:84%"></i><i style="--h:100%"></i><i style="--h:60%"></i><i style="--h:41%"></i><i style="--h:77%"></i><i style="--h:52%"></i><i style="--h:30%"></i><i style="--h:15%"></i></span></a><a href="#controls" data-sections="controls words">管理语音功能与技能</a></section><section class="task-group" id="device"><h2>我的设备</h2><a class="feature device-feature" href="#screen" data-sections="screen shutdownScreen"><span class="feature-copy"><strong>墨水屏</strong><span>更换待机与关机画面</span></span><div class="device-stage" aria-hidden="true"><div class="pocket-shell"><div class="pocket-glass"><img class="pocket-duck" alt=""><canvas id="homeFrame" width="200" height="200" hidden></canvas></div><span class="speaker"></span></div></div></a><a href="#wifi" data-sections="wifi bluetoothSettings">管理网络连接<small id="wifiSummary"></small></a><a href="#updateSource" data-sections="updateSource">检查固件更新</a></section></nav><div id="taskBar" hidden><a href="#overview">‹ 设备总览</a><div id="taskTabs" aria-label="任务选项"></div></div><div class="settings-content">
+<form id="settings" hidden><nav id="appNav" aria-label="主导航"><a href="#device"><i class="device-icon" aria-hidden="true"></i>设备</a><a href="#media"><i class="folder-icon" aria-hidden="true"></i>内容</a><a href="#voice"><i class="mic-icon" aria-hidden="true"></i>语音</a></nav><nav id="overview" class="task-groups" aria-label="设备总览"><section class="task-group" id="media"><h2>我的内容</h2><p id="contentState" role="status">正在读取设备的内容功能…</p><a href="#library" data-sections="library mediaConfig" class="feature music-feature"><span class="feature-copy"><strong>音乐库</strong><small id="librarySummary"></small></span><span class="record" aria-hidden="true"></span></a><div id="quickLists" hidden><h3>播放歌单</h3><div id="quickTracks"></div><small id="quickStatus" role="status"></small></div><a href="#sdBrowser" data-sections="sdBrowser"><span class="entry-icon"><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h10l2 2v16H5V7zM9 4v5m3-5v5m3-5v5"/></svg></span><span class="entry-name">浏览 SD 卡</span></a><a href="#checklist" data-sections="checklist"><span class="entry-icon"><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="3" width="15" height="18" rx="3"/><path d="m8 9 1 1 2-3m2 2h4m-9 6 1 1 2-3m2 2h4"/></svg></span><span class="entry-name">口袋清单</span></a></section><section class="task-group" id="voice"><h2>语音设置</h2><a href="#service" data-sections="service llmSettings speechSettings standby" class="feature voice-feature"><span class="feature-copy"><strong>语音服务</strong><small id="serviceSummary"></small></span><span class="waveform" aria-hidden="true"><i style="--h:21%"></i><i style="--h:37%"></i><i style="--h:64%"></i><i style="--h:45%"></i><i style="--h:84%"></i><i style="--h:100%"></i><i style="--h:60%"></i><i style="--h:41%"></i><i style="--h:77%"></i><i style="--h:52%"></i><i style="--h:30%"></i><i style="--h:15%"></i></span></a><a href="#controls" data-sections="controls words"><span class="entry-icon"><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h8m5 0h3M4 17h3m5 0h8"/><circle cx="14.5" cy="7" r="2.5"/><circle cx="9.5" cy="17" r="2.5"/></svg></span><span class="entry-name">管理语音功能与技能</span></a></section><section class="task-group" id="device"><h2>我的设备</h2><a class="feature device-feature" href="#screen" data-sections="screen shutdownScreen"><span class="feature-copy"><strong>墨水屏</strong><span>更换待机与关机画面</span></span><div class="device-stage" aria-hidden="true"><div class="pocket-shell"><div class="pocket-glass"><img class="pocket-duck" alt=""><canvas id="homeFrame" width="200" height="200" hidden></canvas></div><span class="speaker"></span></div></div></a><a href="#wifi" data-sections="wifi bluetoothSettings"><span class="entry-icon"><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 8a15 15 0 0 1 20 0M5 12a10 10 0 0 1 14 0m-11 4a6 6 0 0 1 8 0"/><circle cx="12" cy="20" r="1"/></svg></span><span class="entry-name">管理网络连接</span><small id="wifiSummary"></small></a><a href="#updateSource" data-sections="updateSource"><span class="entry-icon"><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m-5-5 5 5 5-5M4 16v4h16v-4"/></svg></span><span class="entry-name">检查固件更新</span></a></section></nav><div id="taskBar" hidden><a href="#overview">‹ 设备总览</a><h2 id="taskTitle"></h2><div id="taskTabs" aria-label="任务选项"></div></div><div class="settings-content">
 <fieldset id="wifi"><legend>无线网络</legend>
 <details id="picker" open><summary>附近的 2.4 GHz Wi-Fi</summary><div id="networks"></div></details>
 <button type="button" id="scan">刷新网络列表</button><small id="scanStatus" role="status"></small>
@@ -152,7 +171,7 @@ header{max-width:52rem;margin:auto;padding:.65rem 0 1rem}.brand img{width:3rem}.
 <small>在设备菜单选择「语音互动 → 说一句音乐口令」，看到提示后说话。口令可以直接填中文。多音字可改填无声调拼音，音节用空格分开。</small>
 <div id="phrases"></div>
 <label>点播歌曲（每行一个歌名）<textarea id="songs" rows="4" placeholder="尚未设置点播歌曲"></textarea></label>
-<small>添加“晴天”后，说“播放晴天”即可点歌。要指定读音，可填“晴天|qing tian”。</small>
+<small>基础动作占 6 条，最多另加 294 个歌名。添加“晴天”后，说“播放晴天”即可点歌。要指定读音，可填“晴天|qing tian”。</small>
 <button type="button" id="saveWords" disabled>保存离线口令</button><small id="wordsStatus" role="status"></small>
 </fieldset>
 <fieldset id="updateSource" hidden><legend>固件更新</legend>
@@ -209,7 +228,7 @@ header{max-width:52rem;margin:auto;padding:.65rem 0 1rem}.brand img{width:3rem}.
 <button type="button" id="applyImageOff" disabled>保存关机画面</button><button type="button" id="clearImageOff">恢复默认小鸭</button>
 <small id="imageStatusOff" role="status"></small></fieldset>
 <div class="save-panel"><div id="restartActions"><p>网络和语音服务随「保存并重启」生效。单独保存的网络、离线口令和屏保会保留。</p>
-<button id="save" type="submit" disabled>保存并重启</button></div><button id="retry" type="button" hidden>重新读取设置</button><button id="leave" type="button">退出设置，返回首页</button><p id="status" role="status"></p></div></div></form>
+<button id="save" type="submit" disabled>保存并重启</button></div><button id="retry" type="button" hidden>重新读取设置</button><p id="status" role="status"></p></div></div></form>
 <script>
 const el=id=>document.getElementById(id);
 const controls=['播放','暂停','下一首','上一首','加音量','降音量'].map(name=>{
@@ -301,7 +320,8 @@ function showCategory(){
  el('overview').hidden=!!active;el('taskBar').hidden=!active;
  for(const section of document.querySelectorAll('.settings-content>fieldset'))section.classList.toggle('outside-category',section!==active);
  el('restartActions').hidden=!['wifi','service','llmSettings','speechSettings'].includes(active?.id);
- el('leave').hidden=!!active;
+ el('settings').classList.toggle('detail-view',!!active);
+ if(active)el('taskTitle').textContent=active.querySelector('legend').textContent;
  el('taskTabs').replaceChildren();
  if(sections.length>1)for(const section of sections){
   const a=document.createElement('a');a.href='#'+section.id;a.textContent=section.querySelector('legend').textContent;
@@ -343,6 +363,7 @@ el('saveControls').onclick=async()=>{
    if(!phrase||!action||extra.length)throw Error('请按「口令=动作」填写每一行');
    return {phrase,action};
   });
+  if(policy.skills.length>24)throw Error('自定义技能最多 24 条，当前有 '+policy.skills.length+' 条');
   const result=await deviceRequest('/profile',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'voice_controls',policy})});
   el('controlsStatus').textContent=await result.text();
  }catch(error){el('controlsStatus').textContent=error.message}
@@ -352,6 +373,7 @@ el('saveWords').onclick=async()=>{
  const button=el('saveWords');button.disabled=true;
  try{
   const songs=el('songs').value.split('\n').map(s=>s.trim()).filter(Boolean);
+  if(songs.length>294){el('wordsStatus').textContent='点播歌名最多 294 个，当前有 '+songs.length+' 个';return}
   const words=[...controls.map(c=>c.value.trim()||c.placeholder),...songs].join('\n');
   const r=await deviceRequest('/profile',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'offline_words',words})});
   el('wordsStatus').textContent=await r.text();
@@ -905,18 +927,22 @@ function saverEditor(path,suffix){
 }
 const saverEditors=[saverEditor('/saver',''),saverEditor('/shutdown-saver','Off')];
 el('retry').onclick=load;
-el('leave').onclick=async ()=>{
- el('leave').disabled=true;el('save').disabled=true;
+el('enterAgain').onclick=()=>location.reload();
+el('disconnect').onclick=async()=>{
+ if(!confirm('退出设备管理？尚未保存的修改将丢失。'))return;
+ if(!localDevice){device?.gatt.disconnect();return}
+ const button=el('disconnect');button.disabled=true;
  try{
   const reply=await deviceRequest('/exit',{method:'POST',headers:{'Content-Type':'application/json'}});
   if(!reply.ok)throw Error('退出失败，请重试');
-  clearInterval(presenceTimer);
-  el('status').textContent=await reply.text();
-  if(!localDevice)disconnectManually();
- }catch(e){el('status').textContent=e.message;el('leave').disabled=false;el('save').disabled=false}
+  ++profileGeneration;++authAttempt;clearInterval(presenceTimer);
+  el('settings').hidden=true;el('authorization').hidden=true;button.hidden=true;el('sessionEnded').hidden=false;
+  el('connection').textContent='已退出设备管理';
+ }catch(error){el('status').textContent=error.message}
+ finally{button.disabled=false}
 };
 el('settings').onsubmit=async event=>{
- event.preventDefault();el('save').disabled=true;el('leave').disabled=true;el('status').textContent='正在保存…';
+ event.preventDefault();el('save').disabled=true;el('status').textContent='正在保存…';
  try{
   const data={};
   for(const key of ['ssid','password','mode']) data[key]=el(key).value;
@@ -927,7 +953,7 @@ el('settings').onsubmit=async event=>{
   const reply=await deviceRequest('/profile',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
   const message=await reply.text();if(!reply.ok)throw Error(message);
   el('status').textContent=message;
- }catch(e){el('status').textContent=e.message;el('save').disabled=false;el('leave').disabled=false}
+ }catch(e){el('status').textContent=e.message;el('save').disabled=false}
 };
 
 const lanDevice = document.querySelector('meta[name=quack-transport]')?.content === 'lan';
@@ -1057,15 +1083,12 @@ function startPresence(){
 addEventListener('pagehide',()=>clearInterval(presenceTimer));
 addEventListener('pageshow',event=>{if(event.persisted && lanDevice && !el('settings').hidden)startPresence()});
 function openSettings(){
+ el('disconnect').hidden=false;
  el('authorization').hidden=true;
  el('guide').hidden=true;el('settings').hidden=false;
  if(lanDevice)startPresence();
  load();
 }
-function disconnectManually(){
- device?.gatt.disconnect();
-}
-el('disconnect').onclick=disconnectManually;
 function disconnected(event){
  if(event && event.target!==device)return;
  ++profileGeneration;device=null;el('homeFrame').hidden=true;
@@ -1081,7 +1104,7 @@ function disconnected(event){
  el('updateSource').hidden=true;el('updateStatus').textContent='';
  el('standby').hidden=true;el('standbyStatus').textContent='';
  el('settings').reset();saverEditors.forEach(editor=>editor.reset());
- el('save').disabled=true;el('leave').disabled=false;el('saveWords').disabled=true;
+ el('save').disabled=true;el('saveWords').disabled=true;
  for(const id of ['networks','savedWifi','wifiStatus','wordsStatus','imageStatus'])el(id).replaceChildren();
  el('connection').textContent='设备已断开';el('feedback').textContent='点「连接蓝牙设备」可再次连接。';
 }
