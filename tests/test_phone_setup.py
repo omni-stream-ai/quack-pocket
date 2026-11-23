@@ -191,7 +191,14 @@ PROBE = """<script>
             byId('connect').click();
             await wait(()=>!byId('settings').hidden);
         }
-        if(typeof pairedAccess==='undefined'){
+        await wait(()=>!byId('factoryReset').hidden);
+        let warning='';
+        window.confirm=text=>{warning=text;return false};byId('requestReset').click();
+        check(warning.includes('SD 卡') && warning.includes('不会被清除') && !byId('settings').hidden,'Missing reset confirmation');
+        if(typeof pairedAccess!=='undefined' || !document.querySelector('meta[name=quack-transport]')){
+            window.confirm=()=>true;byId('requestReset').click();
+            await wait(()=>!byId('sessionEnded').hidden && byId('settings').hidden);
+        }else{
             window.confirm=()=>false;byId('disconnect').click();
             check(!byId('settings').hidden,'Cancel exited Wi-Fi management');
             window.confirm=()=>true;byId('disconnect').click();
@@ -220,7 +227,7 @@ window.fetch = (path, options) => {
 };
 const pairedAccess=PAIRED_ACCESS;
 let route, upload, response, status, offset, key='';
-const endpoints=['/profile','/networks','/saver','/profile','/saver','/exit','/shutdown-saver','/shutdown-saver','/access'];
+const endpoints=['/profile','/networks','/saver','/profile','/saver','/exit','/shutdown-saver','/shutdown-saver','/access','/factory-reset'];
 const characteristicMock={
     async writeValueWithResponse(frame){
         if(frame.length>20)throw Error('Exceeded ATT MTU');
@@ -313,6 +320,7 @@ class PhoneSetup(unittest.TestCase):
 
         class Handler(BaseHTTPRequestHandler):
             presence_requests = 0
+            reset_requests = 0
             reads = 0
             scans = 0
 
@@ -340,7 +348,7 @@ class PhoneSetup(unittest.TestCase):
                     self.reply(503 if Handler.scans == 1 else 200, "application/json", json.dumps(["客厅 & Wi-Fi"]))
                 elif self.path == "/profile":
                     Handler.reads += 1
-                    profile = dict(auto_update=False,protocol="responses", separate_model_settings=True, bluetooth_enabled=False, update_url="https://device.test/manifest.json", standby_minutes=5, url="wss://saved.test/device", has_token=True, has_wifi=True, model="chat", saved_wifi=networks,
+                    profile = dict(factory_reset=True,auto_update=False,protocol="responses", separate_model_settings=True, bluetooth_enabled=False, update_url="https://device.test/manifest.json", standby_minutes=5, url="wss://saved.test/device", has_token=True, has_wifi=True, model="chat", saved_wifi=networks,
                                    offline_words="播放\n暂停\n下一首\n上一首\n加音量\n降音量")
                     profile["playlists"] = {"晨间": ["音乐/晴天.mp3"]}
                     profile["voice_controls"] = dict(music=True, volume=True, state=True, skills=[])
@@ -375,6 +383,11 @@ class PhoneSetup(unittest.TestCase):
                 if self.path!="/result" and ((bluetooth and not paired) or lan) and key not in authorized:
                     self.reply(403,"text/plain","unauthorized")
                     return
+                if self.path == "/factory-reset":
+                    if json.loads(data) != {"confirmed": True}:
+                        return self.reply(400,"text/plain","请确认")
+                    Handler.reset_requests += 1
+                    return self.reply(200,"text/plain","设备将重启")
                 if self.path == "/exit":
                     return self.reply(200,"text/plain","已退出设置")
                 if self.path in slots:
@@ -500,6 +513,7 @@ class PhoneSetup(unittest.TestCase):
                 server.shutdown()
                 thread.join()
         self.assertEqual(results, ["PASS"])
+        self.assertEqual(Handler.reset_requests, 0 if lan else 1)
         self.assertEqual(Handler.presence_requests > 0, lan)
         self.assertEqual(bitmaps, [("/saver", bytes([255]) * 5000), ("/shutdown-saver", bytes([255]) * 5000),
                                    ("/saver", b""), ("/shutdown-saver", b"")])

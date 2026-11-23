@@ -12,6 +12,7 @@
 
 #if CONFIG_BOARD_TYPE_WAVESHARE_S3_ePaper_1_54
 #include "boards/waveshare-s3-epaper-1.54/config.h"
+#include "boards/waveshare-s3-epaper-1.54/factory_reset.h"
 #endif
 #define TAG "main"
 
@@ -33,6 +34,10 @@ extern "C" void app_main(void)
         ret = nvs_flash_init();
     }
     ESP_ERROR_CHECK(ret);
+
+#if CONFIG_BOARD_TYPE_WAVESHARE_S3_ePaper_1_54
+    ESP_ERROR_CHECK(pocket_reset::FinishAtBoot());
+#endif
 
     // Launch the application
     auto& app = Application::GetInstance();

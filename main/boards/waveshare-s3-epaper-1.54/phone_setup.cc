@@ -1,5 +1,6 @@
 #include "voice/control_policy.h"
 #include "phone_setup.h"
+#include "factory_reset.h"
 #include "application.h"
 #include "board.h"
 #include "pocket_library.h"
@@ -192,6 +193,7 @@ int BuildProfile(std::string& body) {
     auto profile = VoiceProfile::Load();
     Json object(cJSON_CreateObject(), cJSON_Delete);
     if (!object) { body="生成设备设置时内存不足"; return 503; }
+    cJSON_AddTrueToObject(object.get(), "factory_reset");
     cJSON_AddBoolToObject(object.get(), "wake_enabled", Settings("omni_ui").GetInt("wake", 1));
     cJSON_AddBoolToObject(object.get(),"bluetooth_enabled",SetupBluetoothEnabled());
     if (!pocket_library::AddProfile(object.get())) { body="读取媒体设置失败"; return 500; }
@@ -396,6 +398,27 @@ esp_err_t RegisterSetupRoutes(httpd_handle_t server, CustomLcdDisplay* display, 
         };
         ESP_RETURN_ON_ERROR(httpd_register_uri_handler(server,&presence),"setup","register presence");
     }
+    httpd_uri_t reset{};
+    reset.uri = "/factory-reset";
+    reset.method = HTTP_POST;
+    reset.handler = [](httpd_req_t* req) {
+        if (!SetupRequestAllowed(req)) return ESP_OK;
+        char type[32];
+        if (httpd_req_get_hdr_value_str(req, "Content-Type", type, sizeof(type)) != ESP_OK ||
+            strcmp(type, "application/json") || !req->content_len || req->content_len > 64)
+            return Bad(req, "恢复请求无效");
+        std::string confirmation(req->content_len, '\0'), result;
+        size_t pos = 0;
+        while (pos < confirmation.size()) {
+            int n = httpd_req_recv(req, confirmation.data()+pos, confirmation.size()-pos);
+            if (n <= 0) return ESP_FAIL;
+            pos += n;
+        }
+        int code = RequestPocketReset(confirmation, result);
+        if (code != 200) httpd_resp_set_status(req, code == 400 ? "400 Bad Request" : "503 Service Unavailable");
+        return Reply(req, "text/plain; charset=utf-8", result.c_str());
+    };
+    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(server,&reset),"setup","register reset");
     httpd_uri_t access{};
     access.uri = "/access"; access.method = HTTP_POST; access.handler = [](httpd_req_t* req) {
         if (!FirstManagementRequestAllowed(req)) return ESP_OK;
@@ -476,6 +499,37 @@ esp_err_t LoopbackOnly(httpd_handle_t, int fd) {
     }
     return ESP_FAIL;
 }
+}
+
+int RequestPocketReset(const std::string& confirmation, std::string& result) {
+    Json data(cJSON_ParseWithOpts(confirmation.c_str(), nullptr, true), cJSON_Delete);
+    if (!cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(data.get(), "confirmed"))) {
+        result = "请先确认恢复出厂设置";
+        return 400;
+    }
+    static std::mutex reset_mutex;
+    static bool scheduled = false;
+    std::lock_guard<std::mutex> guard(reset_mutex);
+    if (!scheduled) {
+        esp_timer_handle_t timer;
+        esp_timer_create_args_t args{};
+        args.callback = [](void*) { esp_restart(); };
+        args.name = "factory_reset";
+        if (esp_timer_create(&args, &timer) != ESP_OK) {
+            result = "无法安排重启，请重试";
+            return 503;
+        }
+        auto err = pocket_reset::Mark("nvs");
+        if (err != ESP_OK) {
+            esp_timer_delete(timer);
+            result = std::string("无法保存恢复请求：") + esp_err_to_name(err);
+            return 503;
+        }
+        scheduled = true;
+        if (esp_timer_start_once(timer, 2000000) != ESP_OK) esp_restart();
+    }
+    result = "恢复请求已接受，设备将重启。SD 卡内容会保留。";
+    return 200;
 }
 
 int ReadPairedBluetoothProfile(std::string& body) {

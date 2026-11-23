@@ -4,6 +4,7 @@ class CustomLcdDisplay;
 void RunPhoneSetup(CustomLcdDisplay* display, bool lan = false);
 bool PhoneSetupActive();
 bool ShowPhoneSetupIfActive(bool approve = true);
+int RequestPocketReset(const std::string& confirmation, std::string& result);
 int ReadPairedBluetoothProfile(std::string& body);
 int BluetoothSetupPort(CustomLcdDisplay* display);
 void InitializeBluetoothPrompts(CustomLcdDisplay* display);

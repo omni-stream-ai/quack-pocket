@@ -114,6 +114,7 @@ header{display:flex;flex-wrap:nowrap;align-items:center}#disconnect{width:44px;h
 .detail-view :is(button[id^=save],#applyImage,#applyImageOff){display:block;width:100%;margin:1.2rem 0 .25rem;padding:.8rem;background:#284d39;border-radius:.75rem}
 .detail-view .save-panel{border:1px solid var(--line);padding:1.1rem}.detail-view #status:empty{margin:0}
 @media(prefers-reduced-motion:no-preference){.task-group a:has(.entry-icon):active{transform:scale(.98)}.detail-view fieldset:not(.outside-category){animation:detail-in .18s ease-out}@keyframes detail-in{from{opacity:.5;transform:translateY(4px)}to{opacity:1;transform:none}}}
+#factoryReset p+p{margin-top:.75rem}#requestReset{margin-top:1rem;background:#87352c;color:white}
 </style></head><body>
 <header><div class="brand"><img id="brandIcon" width="80" height="80" alt=""><div><h1>嘎嘎口袋</h1><p>设备管理</p></div></div><div class="connection-tools"><p id="connection" role="status">准备连接设备…</p><button id="disconnect" type="button" title="退出设备管理" aria-label="退出设备管理" hidden><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M10 4H5v16h5m4-13 5 5-5 5m-6-5h11"/></svg></button></div></header>
 <section class="guide" id="guide" hidden><div class="connect-hero"><div><h2>连接你的<br>嘎嘎口袋</h2><p>打开设备蓝牙，在附近设备中选择 Omni。</p><button id="connect">连接蓝牙设备</button></div><div class="device-stage" aria-hidden="true"><div class="pocket-shell"><div class="pocket-glass"><img class="pocket-duck" alt=""></div><span class="speaker"></span></div></div></div><p id="feedback" role="status"></p>
@@ -123,7 +124,7 @@ header{display:flex;flex-wrap:nowrap;align-items:center}#disconnect{width:44px;h
 <section class="guide" id="authorization" hidden><h2>授权此浏览器</h2>
 <label>在鸭子上显示的名称<input id="browserName" maxlength="16" placeholder="例如：妈妈的手机"></label>
 <button id="requestAccess">请求连接</button><p id="authStatus" role="status"></p></section>
-<form id="settings" hidden><nav id="appNav" aria-label="主导航"><a href="#device"><i class="device-icon" aria-hidden="true"></i>设备</a><a href="#media"><i class="folder-icon" aria-hidden="true"></i>内容</a><a href="#voice"><i class="mic-icon" aria-hidden="true"></i>语音</a></nav><nav id="overview" class="task-groups" aria-label="设备总览"><section class="task-group" id="media"><h2>我的内容</h2><p id="contentState" role="status">正在读取设备的内容功能…</p><a href="#library" data-sections="library mediaConfig" class="feature music-feature"><span class="feature-copy"><strong>音乐库</strong><small id="librarySummary"></small></span><span class="record" aria-hidden="true"></span></a><div id="quickLists" hidden><h3>播放歌单</h3><div id="quickTracks"></div><small id="quickStatus" role="status"></small></div><a href="#sdBrowser" data-sections="sdBrowser"><span class="entry-icon"><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h10l2 2v16H5V7zM9 4v5m3-5v5m3-5v5"/></svg></span><span class="entry-name">浏览 SD 卡</span></a><a href="#checklist" data-sections="checklist"><span class="entry-icon"><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="3" width="15" height="18" rx="3"/><path d="m8 9 1 1 2-3m2 2h4m-9 6 1 1 2-3m2 2h4"/></svg></span><span class="entry-name">口袋清单</span></a></section><section class="task-group" id="voice"><h2>语音设置</h2><a href="#service" data-sections="service llmSettings speechSettings standby" class="feature voice-feature"><span class="feature-copy"><strong>语音服务</strong><small id="serviceSummary"></small></span><span class="waveform" aria-hidden="true"><i style="--h:21%"></i><i style="--h:37%"></i><i style="--h:64%"></i><i style="--h:45%"></i><i style="--h:84%"></i><i style="--h:100%"></i><i style="--h:60%"></i><i style="--h:41%"></i><i style="--h:77%"></i><i style="--h:52%"></i><i style="--h:30%"></i><i style="--h:15%"></i></span></a><a href="#controls" data-sections="controls words"><span class="entry-icon"><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h8m5 0h3M4 17h3m5 0h8"/><circle cx="14.5" cy="7" r="2.5"/><circle cx="9.5" cy="17" r="2.5"/></svg></span><span class="entry-name">管理语音功能与技能</span></a></section><section class="task-group" id="device"><h2>我的设备</h2><a class="feature device-feature" href="#screen" data-sections="screen shutdownScreen"><span class="feature-copy"><strong>墨水屏</strong><span>更换待机与关机画面</span></span><div class="device-stage" aria-hidden="true"><div class="pocket-shell"><div class="pocket-glass"><img class="pocket-duck" alt=""><canvas id="homeFrame" width="200" height="200" hidden></canvas></div><span class="speaker"></span></div></div></a><a href="#wifi" data-sections="wifi bluetoothSettings"><span class="entry-icon"><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 8a15 15 0 0 1 20 0M5 12a10 10 0 0 1 14 0m-11 4a6 6 0 0 1 8 0"/><circle cx="12" cy="20" r="1"/></svg></span><span class="entry-name">管理网络连接</span><small id="wifiSummary"></small></a><a href="#updateSource" data-sections="updateSource"><span class="entry-icon"><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m-5-5 5 5 5-5M4 16v4h16v-4"/></svg></span><span class="entry-name">检查固件更新</span></a></section></nav><div id="taskBar" hidden><a href="#overview">‹ 设备总览</a><h2 id="taskTitle"></h2><div id="taskTabs" aria-label="任务选项"></div></div><div class="settings-content">
+<form id="settings" hidden><nav id="appNav" aria-label="主导航"><a href="#device"><i class="device-icon" aria-hidden="true"></i>设备</a><a href="#media"><i class="folder-icon" aria-hidden="true"></i>内容</a><a href="#voice"><i class="mic-icon" aria-hidden="true"></i>语音</a></nav><nav id="overview" class="task-groups" aria-label="设备总览"><section class="task-group" id="media"><h2>我的内容</h2><p id="contentState" role="status">正在读取设备的内容功能…</p><a href="#library" data-sections="library mediaConfig" class="feature music-feature"><span class="feature-copy"><strong>音乐库</strong><small id="librarySummary"></small></span><span class="record" aria-hidden="true"></span></a><div id="quickLists" hidden><h3>播放歌单</h3><div id="quickTracks"></div><small id="quickStatus" role="status"></small></div><a href="#sdBrowser" data-sections="sdBrowser"><span class="entry-icon"><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h10l2 2v16H5V7zM9 4v5m3-5v5m3-5v5"/></svg></span><span class="entry-name">浏览 SD 卡</span></a><a href="#checklist" data-sections="checklist"><span class="entry-icon"><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="3" width="15" height="18" rx="3"/><path d="m8 9 1 1 2-3m2 2h4m-9 6 1 1 2-3m2 2h4"/></svg></span><span class="entry-name">口袋清单</span></a></section><section class="task-group" id="voice"><h2>语音设置</h2><a href="#service" data-sections="service llmSettings speechSettings standby" class="feature voice-feature"><span class="feature-copy"><strong>语音服务</strong><small id="serviceSummary"></small></span><span class="waveform" aria-hidden="true"><i style="--h:21%"></i><i style="--h:37%"></i><i style="--h:64%"></i><i style="--h:45%"></i><i style="--h:84%"></i><i style="--h:100%"></i><i style="--h:60%"></i><i style="--h:41%"></i><i style="--h:77%"></i><i style="--h:52%"></i><i style="--h:30%"></i><i style="--h:15%"></i></span></a><a href="#controls" data-sections="controls words"><span class="entry-icon"><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h8m5 0h3M4 17h3m5 0h8"/><circle cx="14.5" cy="7" r="2.5"/><circle cx="9.5" cy="17" r="2.5"/></svg></span><span class="entry-name">管理语音功能与技能</span></a></section><section class="task-group" id="device"><h2>我的设备</h2><a class="feature device-feature" href="#screen" data-sections="screen shutdownScreen"><span class="feature-copy"><strong>墨水屏</strong><span>更换待机与关机画面</span></span><div class="device-stage" aria-hidden="true"><div class="pocket-shell"><div class="pocket-glass"><img class="pocket-duck" alt=""><canvas id="homeFrame" width="200" height="200" hidden></canvas></div><span class="speaker"></span></div></div></a><a href="#wifi" data-sections="wifi bluetoothSettings"><span class="entry-icon"><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 8a15 15 0 0 1 20 0M5 12a10 10 0 0 1 14 0m-11 4a6 6 0 0 1 8 0"/><circle cx="12" cy="20" r="1"/></svg></span><span class="entry-name">管理网络连接</span><small id="wifiSummary"></small></a><a href="#updateSource" data-sections="updateSource"><span class="entry-icon"><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m-5-5 5 5 5-5M4 16v4h16v-4"/></svg></span><span class="entry-name">检查固件更新</span></a><a href="#factoryReset" data-sections="factoryReset"><span class="entry-icon"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M3 10a9 9 0 1 1 1 7M3 4v6h6"/></svg></span><span class="entry-name">恢复出厂设置</span></a></section></nav><div id="taskBar" hidden><a href="#overview">‹ 设备总览</a><h2 id="taskTitle"></h2><div id="taskTabs" aria-label="任务选项"></div></div><div class="settings-content">
 <fieldset id="wifi"><legend>无线网络</legend>
 <details id="picker" open><summary>附近的 2.4 GHz Wi-Fi</summary><div id="networks"></div></details>
 <button type="button" id="scan">刷新网络列表</button><small id="scanStatus" role="status"></small>
@@ -174,6 +175,10 @@ header{display:flex;flex-wrap:nowrap;align-items:center}#disconnect{width:44px;h
 <small>基础动作占 6 条，最多另加 294 个歌名。添加“晴天”后，说“播放晴天”即可点歌。要指定读音，可填“晴天|qing tian”。</small>
 <button type="button" id="saveWords" disabled>保存离线口令</button><small id="wordsStatus" role="status"></small>
 </fieldset>
+<fieldset id="factoryReset" hidden><legend>恢复出厂设置</legend>
+<p>清空设备内部的所有用户数据，包括 Wi-Fi、语音服务与令牌、蓝牙配对、浏览器授权、播放列表、收藏、离线口令和自定义屏幕画面。设备将重启并进入首次设置。</p>
+<p><strong>SD 卡内容不会被清除。</strong>卡上的歌曲、录音和其他文件都会保留。</p>
+<button type="button" id="requestReset">恢复出厂设置…</button><small role="status" id="resetStatus"></small></fieldset>
 <fieldset id="updateSource" hidden><legend>固件更新</legend>
 <label id="autoUpdateOption" hidden><input type="checkbox" id="autoUpdate">联网后自动检查新版本（仅提醒）</label>
 <button type="button" id="useSiteUpdates" hidden>使用本站更新</button>
@@ -812,6 +817,7 @@ async function load(){
   el('sdBrowser').hidden=!data.sd_browser;manageCard=data.sd_manage===true;el('sdTools').hidden=!manageCard;el('sdPath').textContent='/'+sdPath;
   el('autoUpdateOption').hidden=typeof data.auto_update!=='boolean';el('autoUpdate').checked=data.auto_update===true;
   el('updateSource').hidden=typeof data.update_url!=='string';el('updateUrl').value=data.update_url||'';
+  el('factoryReset').hidden=data.factory_reset!==true;
   renderBluetooth(data.bluetooth_enabled);
   el('wakeOption').hidden=typeof data.wake_enabled!=='boolean';
   el('wakeEnabled').checked=data.wake_enabled===true;
@@ -927,6 +933,21 @@ function saverEditor(path,suffix){
 }
 const saverEditors=[saverEditor('/saver',''),saverEditor('/shutdown-saver','Off')];
 el('retry').onclick=load;
+el('requestReset').onclick=async()=>{
+ if(!confirm('恢复出厂设置并重启？设备内部的所有用户数据将被永久清除，无法撤销。SD 卡上的歌曲、录音和其他文件不会被清除。'))return;
+ const button=el('requestReset');button.disabled=true;
+ try{
+  const response=await deviceRequest('/factory-reset',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirmed:true})});
+  if(!response.ok)throw Error(await response.text()||'设备未接受恢复请求');
+  clearInterval(presenceTimer);
+  if(!localDevice)device?.gatt.disconnect();
+  ++profileGeneration;
+  el('settings').hidden=el('authorization').hidden=el('disconnect').hidden=true;
+  el('sessionEnded').querySelector('h2').textContent='设备即将重启，SD 卡内容会保留';
+  el('sessionEnded').hidden=false;el('guide').hidden=true;
+ }catch(error){el('resetStatus').textContent=error.message||'请检查设备是否已重启'}
+ finally{button.disabled=false}
+};
 el('enterAgain').onclick=()=>location.reload();
 el('disconnect').onclick=async()=>{
  if(!confirm('退出设备管理？尚未保存的修改将丢失。'))return;
@@ -979,7 +1000,7 @@ if(!localDevice && window.isSecureContext){
 const serviceId = '4f4d4e49-0000-4000-8000-000000000001';
 const channelId = '4f4d4e49-0000-4000-8000-000000000002';
 let characteristic, device, queue = Promise.resolve();
-const routes = ['GET /profile','GET /networks','GET /saver','POST /profile','POST /saver','POST /exit','GET /shutdown-saver','POST /shutdown-saver','POST /access'];
+const routes = ['GET /profile','GET /networks','GET /saver','POST /profile','POST /saver','POST /exit','GET /shutdown-saver','POST /shutdown-saver','POST /access','POST /factory-reset'];
 
 async function exchange(link,path,options){
  if(!link || link!==characteristic)throw Error('蓝牙连接已断开');
@@ -1100,7 +1121,8 @@ function disconnected(event){
  for(const id of ['sdUp','sdMore'])el(id).hidden=true;
  for(const id of ['sdPath','sdStatus'])el(id).textContent='';
  ++authAttempt;el('authorization').hidden=true;
- characteristic=null;el('settings').hidden=true;el('guide').hidden=false;
+ characteristic=null;el('settings').hidden=true;el('guide').hidden=!el('sessionEnded').hidden;
+ el('factoryReset').hidden=true;el('resetStatus').textContent='';
  el('updateSource').hidden=true;el('updateStatus').textContent='';
  el('standby').hidden=true;el('standbyStatus').textContent='';
  el('settings').reset();saverEditors.forEach(editor=>editor.reset());
