@@ -880,26 +880,16 @@ public:
             if (phrase.size() >= n && phrase.compare(phrase.size()-n,n,suffix) == 0)
                 phrase.resize(phrase.size()-n);
         }
-        auto policy = voice_control::Load();
-        auto skills = cJSON_GetObjectItem(policy.get(), "skills");
-        cJSON* skill;
-        cJSON_ArrayForEach(skill, skills) {
-            auto trigger = cJSON_GetObjectItem(skill, "phrase");
-            auto action = cJSON_GetObjectItem(skill, "action");
-            if (!cJSON_IsString(trigger) || phrase != trigger->valuestring || !cJSON_IsString(action)) continue;
-            std::string group = action->valuestring;
-            if (!cJSON_IsTrue(cJSON_GetObjectItem(policy.get(),group.c_str()))) return;
-            auto arg = cJSON_GetObjectItem(skill,"argument");
-            if (group == "state") Application::GetInstance().SetVoicePaused(true);
-            if (group == "volume") {
-                auto* codec = GetAudioCodec();
-                codec->SetOutputVolume(cJSON_IsNumber(arg) ? arg->valueint : std::min(100, codec->output_volume()+10));
-            }
-            if (group == "music" && (cJSON_IsString(arg) ? music_.Request(MusicAction::PlayFile,arg->valuestring)
-                                                         : music_.Request(MusicAction::Sequential)))
-                Application::GetInstance().FinishChatForMusic();
-            return;
+        voice_control::Match match;
+        if (!voice_control::Find(phrase, match)) return;
+        if (match.group == voice_control::Group::State) Application::GetInstance().SetVoicePaused(true);
+        if (match.group == voice_control::Group::Volume) {
+            auto* codec = GetAudioCodec();
+            codec->SetOutputVolume(match.volume >= 0 ? match.volume : std::min(100, codec->output_volume()+10));
         }
+        if (match.group == voice_control::Group::Music &&
+            (match.song.empty() ? music_.Request(MusicAction::Sequential) : music_.Request(MusicAction::PlayFile,match.song.c_str())))
+            Application::GetInstance().FinishChatForMusic();
     }
 
     void CheckVoiceStandby() override {

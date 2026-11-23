@@ -63,6 +63,9 @@ PROBE = """<script>
         byId('newPhrase').value='回家了';byId('newAction').value='返回首页';byId('addSkill').click();
         check(document.querySelector('#phrases input').placeholder==='播放','Missing saved command hint');
         check(!document.querySelector('nav a[href="#sdBrowser"]').hidden,'Missing SD navigation');
+        if(typeof pairedAccess!=='undefined' && pairedAccess){
+            byId('voiceSkills').value+=Array.from({length:30},(_,i)=>'\\n技能'+i+'=返回首页').join('');
+        }
         byId('saveControls').click();
         await wait(()=>byId('controlsStatus').textContent==='语音功能已保存');
         check(byId('llmProtocol').value==='responses','Protocol failed to load');
@@ -227,7 +230,7 @@ window.fetch = (path, options) => {
 };
 const pairedAccess=PAIRED_ACCESS;
 let route, upload, response, status, offset, key='';
-const endpoints=['/profile','/networks','/saver','/profile','/saver','/exit','/shutdown-saver','/shutdown-saver','/access','/factory-reset'];
+const endpoints=['/profile','/networks','/saver','/profile','/saver','/exit','/shutdown-saver','/shutdown-saver','/access','/factory-reset','/voice-controls'];
 const characteristicMock={
     async writeValueWithResponse(frame){
         if(frame.length>20)throw Error('Exceeded ATT MTU');
@@ -351,6 +354,8 @@ class PhoneSetup(unittest.TestCase):
                     profile = dict(factory_reset=True,auto_update=False,protocol="responses", separate_model_settings=True, bluetooth_enabled=False, update_url="https://device.test/manifest.json", standby_minutes=5, url="wss://saved.test/device", has_token=True, has_wifi=True, model="chat", saved_wifi=networks,
                                    offline_words="播放\n暂停\n下一首\n上一首\n加音量\n降音量")
                     profile["playlists"] = {"晨间": ["音乐/晴天.mp3"]}
+                    if paired:
+                        profile["voice_policy_bytes"] = 4096
                     profile["voice_controls"] = dict(music=True, volume=True, state=True, skills=[])
                     profile.update(media=dict(music="",stories="故事",messages="留言",minutes=15,
                                               record_seconds=60,chapter_stop=True),sd_browser=True,sd_manage=True,checklist=[],favorites=[])
@@ -400,6 +405,12 @@ class PhoneSetup(unittest.TestCase):
                     results.append(body)
                     self.reply(200, "text/plain", "")
                     finished.set()
+                elif self.path == "/voice-controls":
+                    payload=json.loads(body)
+                    skills=payload["policy"]["skills"]
+                    if paired and len(skills)==32 and skills[-1]==dict(phrase="技能29",action="state"):
+                        return self.reply(200,"text/plain","语音功能已保存")
+                    return self.reply(400,"text/plain","wrong BLE policy")
                 elif self.path == "/profile":
                     payload = json.loads(body)
                     action = payload.get("action")

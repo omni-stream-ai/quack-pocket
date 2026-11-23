@@ -166,7 +166,7 @@ header{display:flex;flex-wrap:nowrap;align-items:center}#disconnect{width:44px;h
 <label>执行动作<select id="newAction"><option>播放音乐</option><option>调大音量</option><option>返回首页</option></select></label>
 <button type="button" id="addSkill">添加到技能列表</button>
 <label>自定义技能<textarea id="voiceSkills" rows="4" placeholder="开始晨练=播放音乐 晴天"></textarea></label>
-<small>每行填写「口令=动作」，最多 24 条。可填「播放音乐」「调大音量」「返回首页」，也可指定歌曲或音量，例如「晚安=播放音乐 摇篮曲」「阅读时间=音量 25」。通话中说出口令即可触发已开启的动作。</small>
+<small>每行填写「口令=动作」。<span id="skillLimit"></span>可填「播放音乐」「调大音量」「返回首页」，也可指定歌曲或音量，例如「晚安=播放音乐 摇篮曲」「阅读时间=音量 25」。通话中说出口令即可触发已开启的动作。</small>
 <button type="button" id="saveControls">保存语音功能</button><small role="status" id="controlsStatus"></small></fieldset>
 <fieldset id="words"><legend>离线语音口令</legend>
 <small>在设备菜单选择「语音互动 → 说一句音乐口令」，看到提示后说话。口令可以直接填中文。多音字可改填无声调拼音，音节用空格分开。</small>
@@ -352,6 +352,7 @@ for(const link of settingsLinks){
  sync();
 }
 addEventListener('hashchange',()=>{showCategory();window.scrollTo(0,0)});
+let policyBytes=0;
 const switches={music:'allowMusic',volume:'allowVolume',state:'allowState'};
 el('saveControls').onclick=async()=>{
  const button=el('saveControls');button.disabled=true;
@@ -368,8 +369,10 @@ el('saveControls').onclick=async()=>{
    if(!phrase||!action||extra.length)throw Error('请按「口令=动作」填写每一行');
    return {phrase,action};
   });
-  if(policy.skills.length>24)throw Error('自定义技能最多 24 条，当前有 '+policy.skills.length+' 条');
-  const result=await deviceRequest('/profile',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'voice_controls',policy})});
+  if(policyBytes && new TextEncoder().encode(JSON.stringify(policy)).length>policyBytes)throw Error('技能配置超过 '+policyBytes+' 字节，请缩短口令或减少技能');
+  if(!policyBytes && policy.skills.length>24)throw Error('自定义技能最多 24 条，当前有 '+policy.skills.length+' 条');
+  const path=!localDevice && policyBytes?'/voice-controls':'/profile';
+  const result=await deviceRequest(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'voice_controls',policy})});
   el('controlsStatus').textContent=await result.text();
  }catch(error){el('controlsStatus').textContent=error.message}
  finally{button.disabled=false}
@@ -823,6 +826,8 @@ async function load(){
   el('wakeEnabled').checked=data.wake_enabled===true;
   el('controls').hidden=!data.voice_controls;
   if(data.voice_controls){
+   policyBytes=Number(data.voice_policy_bytes)||0;
+   el('skillLimit').textContent=policyBytes?'整份配置最多 '+policyBytes+' 字节。':'当前固件最多 24 条技能。';
    el('networkPermission').hidden=typeof data.voice_controls.network!=='boolean';
    el('allowNetwork').checked=data.voice_controls.network===true;
    for(const [group,id] of Object.entries(switches))el(id).checked=data.voice_controls[group];
@@ -1000,7 +1005,7 @@ if(!localDevice && window.isSecureContext){
 const serviceId = '4f4d4e49-0000-4000-8000-000000000001';
 const channelId = '4f4d4e49-0000-4000-8000-000000000002';
 let characteristic, device, queue = Promise.resolve();
-const routes = ['GET /profile','GET /networks','GET /saver','POST /profile','POST /saver','POST /exit','GET /shutdown-saver','POST /shutdown-saver','POST /access','POST /factory-reset'];
+const routes = ['GET /profile','GET /networks','GET /saver','POST /profile','POST /saver','POST /exit','GET /shutdown-saver','POST /shutdown-saver','POST /access','POST /factory-reset','POST /voice-controls'];
 
 async function exchange(link,path,options){
  if(!link || link!==characteristic)throw Error('蓝牙连接已断开');

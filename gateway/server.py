@@ -52,7 +52,7 @@ def model_settings(hello):
         if type(controls.get("network")) is bool:
             result["voice_controls"]["network"] = controls["network"]
         skills = controls.get("skills", [])
-        if not isinstance(skills, list) or len(skills) > 24:
+        if not isinstance(skills, list):
             raise ValueError("invalid voice skills")
         result["local_phrases"] = {s["phrase"] for s in skills if isinstance(s, dict) and
                                    isinstance(s.get("phrase"), str) and isinstance(s.get("action"), str)

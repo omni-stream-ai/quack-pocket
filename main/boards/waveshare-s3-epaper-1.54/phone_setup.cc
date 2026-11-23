@@ -193,6 +193,7 @@ int BuildProfile(std::string& body) {
     auto profile = VoiceProfile::Load();
     Json object(cJSON_CreateObject(), cJSON_Delete);
     if (!object) { body="生成设备设置时内存不足"; return 503; }
+    cJSON_AddNumberToObject(object.get(), "voice_policy_bytes", voice_control::max_policy_bytes);
     cJSON_AddTrueToObject(object.get(), "factory_reset");
     cJSON_AddBoolToObject(object.get(), "wake_enabled", Settings("omni_ui").GetInt("wake", 1));
     cJSON_AddBoolToObject(object.get(),"bluetooth_enabled",SetupBluetoothEnabled());
@@ -247,6 +248,15 @@ esp_err_t Profile(httpd_req_t* req) {
     auto result = Reply(req, "application/json", body.c_str());
     if (result == ESP_OK) MarkProfileRead(req->user_ctx ? req->handle : nullptr, std::move(browser));
     return result;
+}
+
+int StoreVoiceControls(const cJSON* data, std::string& result) {
+    if (!voice_control::Save(cJSON_GetObjectItemCaseSensitive(data, "policy"))) {
+        result = "无法保存，请检查重复口令、长度和设置空间";
+        return 400;
+    }
+    result = "语音功能已保存";
+    return 200;
 }
 
 esp_err_t Save(httpd_req_t* req) {
@@ -309,9 +319,9 @@ esp_err_t Save(httpd_req_t* req) {
         return Reply(req, "text/plain; charset=utf-8", "待机时间已保存");
     }
     if (get("action") == "voice_controls") {
-        if (!voice_control::Save(cJSON_GetObjectItemCaseSensitive(data.get(),"policy")))
-            return Bad(req,"无法保存，请检查重复口令、长度和设置空间");
-        return Reply(req,"text/plain; charset=utf-8","语音功能已保存");
+        std::string message;
+        if (StoreVoiceControls(data.get(), message) != 200) return Bad(req, message.c_str());
+        return Reply(req,"text/plain; charset=utf-8",message.c_str());
     }
     if (get("action") == "offline_words") {
         std::string error;
@@ -530,6 +540,11 @@ int RequestPocketReset(const std::string& confirmation, std::string& result) {
     }
     result = "恢复请求已接受，设备将重启。SD 卡内容会保留。";
     return 200;
+}
+
+int SavePairedVoiceControls(const std::string& body, std::string& result) {
+    Json data(cJSON_ParseWithOpts(body.c_str(), nullptr, true), cJSON_Delete);
+    return StoreVoiceControls(data.get(), result);
 }
 
 int ReadPairedBluetoothProfile(std::string& body) {

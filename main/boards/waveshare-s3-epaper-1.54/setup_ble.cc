@@ -34,7 +34,7 @@ uint8_t address_type;
 struct Route { const char* path; bool post; };
 constexpr Route routes[] = {{"/profile",false},{"/networks",false},{"/saver",false},
                             {"/profile",true},{"/saver",true},{"/exit",true},
-                            {"/shutdown-saver",false},{"/shutdown-saver",true},{"/access",true},{"/factory-reset",true}};
+                            {"/shutdown-saver",false},{"/shutdown-saver",true},{"/access",true},{"/factory-reset",true},{"/voice-controls",true}};
 struct Transaction {
     unsigned generation;
     unsigned route;
@@ -215,6 +215,7 @@ int DispatchManagement(unsigned index,const std::string& body,std::string& resul
     if (!strcmp(route.path,"/access")) { result="已授权"; return 200; }
     if (!route.post && !strcmp(route.path,"/profile")) return ReadPairedBluetoothProfile(result);
     if (route.post && !strcmp(route.path,"/factory-reset")) return RequestPocketReset(body,result);
+    if (route.post && !strcmp(route.path,"/voice-controls")) return SavePairedVoiceControls(body,result);
     auto port = BluetoothSetupPort(setup_display);
     if (!port) { result="设备内的管理服务启动失败"; return 503; }
     std::string url = "http://127.0.0.1:" + std::to_string(port) + route.path;

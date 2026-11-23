@@ -38,6 +38,9 @@ class ModelSettings(unittest.TestCase):
             "format": "opus", "sample_rate": 16000, "frame_duration": 60, "channels": 1},
             "model_settings": settings}
         self.assertEqual(model_settings(hello), {**settings, "asr": "", "tts": ""})
+        phrases = ["口令" + str(i) for i in range(80)]
+        controls = dict(music=True, volume=True, state=True, skills=[{"phrase": p, "action": "state"} for p in phrases])
+        self.assertEqual(model_settings({**hello, "voice_controls": controls})["local_phrases"], set(phrases))
         for key, invalid in (("model", settings["model"] + "A"), ("voice", settings["voice"] + "A"),
                              ("tts", "bad\nname"), ("asr", "has space"), ("voice", 7)):
             with self.subTest(key=key, invalid=invalid), self.assertRaises(ValueError):
