@@ -11,9 +11,9 @@ MUSIC_TOOLS = [
         "name": "play_file", "description": "用户点播歌曲时优先调用此工具，按歌名查找并播放存储卡上的 MP3。path 填用户说的歌名（文件名可省略扩展名），或包含扩展名的完整相对路径。",
         "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}}},
     {"type": "function", "function": {
-        "name": "control_music", "description": "控制本地播放。resume_music 续播音乐，resume_story 续播故事，可用 path 点播章节。",
+        "name": "control_music", "description": "控制本地播放。resume_music 续播音乐，resume_story 续播故事，可用 path 点播章节。repeat_music 循环指定歌曲，repeat_story 循环指定书或章节，循环时必须填写 path。",
         "parameters": {"type": "object", "properties": {"action": {"type": "string",
-            "enum": ["resume_music", "resume_story", "sequential", "shuffle", "next", "stop"]},"path":{"type":"string"}}, "required": ["action"]}}}
+            "enum": ["resume_music", "resume_story", "repeat_music", "repeat_story", "sequential", "shuffle", "next", "stop"]},"path":{"type":"string"}}, "required": ["action"]}}}
 ]
 
 

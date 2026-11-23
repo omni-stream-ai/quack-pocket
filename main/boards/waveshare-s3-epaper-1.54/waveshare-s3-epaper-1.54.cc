@@ -629,15 +629,24 @@ private:
         update_ = UpdateState::Confirm;
     }
 
+    std::atomic<TaskHandle_t> wifi_worker_{nullptr};
+    std::atomic<bool> manual_update_pending_{false};
+
     void StartUpdate(bool install) {
+        if (!WifiStation::GetInstance().IsConnected()) { UpdateResult("请先连接 Wi-Fi"); return; }
+        auto worker = wifi_worker_.load();
+        if (!worker) { UpdateResult("网络服务尚未就绪，请稍后重试"); return; }
         update_ = install ? UpdateState::Installing : UpdateState::Checking;
         display_->ShowUpdatePage(install ? "准备安装，请保持供电" : "正在检查新版本…");
-        if (xTaskCreate([](void* ctx) {
-                auto* self = static_cast<CustomBoard*>(ctx);
-                self->RunUpdate(self->update_ == UpdateState::Installing);
-                vTaskDelete(nullptr);
-            }, "pocket_ota", 12288, this, 3, nullptr) != pdPASS)
-            UpdateResult("内存不足，请稍后重试");
+        manual_update_pending_ = true;
+        xTaskNotifyGive(worker);
+    }
+
+    void ProcessManualUpdate() {
+        if (!manual_update_pending_.exchange(false)) return;
+        RunUpdate(update_ == UpdateState::Installing);
+        ESP_LOGI(TAG, "Update worker stack low-water mark: %u bytes",
+                 unsigned(uxTaskGetStackHighWaterMark(nullptr)));
     }
 
     bool UpdateButton(bool confirm) {
@@ -799,10 +808,14 @@ private:
             Settings("omni_mode", true).SetInt("install_model", 0);
             RequestMusicFromButton(MusicAction::InstallModel);
         }
-        auto created = xTaskCreate([](void* board) {
+        // Wi-Fi monitoring and OTA share an internal stack. Flash installation
+        // can disable the external RAM cache while writing the application.
+        static StaticTask_t worker_tcb;
+        alignas(portBYTE_ALIGNMENT) static StackType_t worker_stack[8192 / sizeof(StackType_t)];
+        wifi_worker_ = xTaskCreateStatic([](void* board) {
             static_cast<CustomBoard*>(board)->MonitorWifi();
-        }, "wifi_monitor", 4096, this, 3, nullptr);
-        if (created != pdPASS) ESP_LOGE(TAG, "Cannot start Wi-Fi monitor");
+        }, "wifi_monitor", sizeof(worker_stack), this, 3, worker_stack, &worker_tcb);
+        if (!wifi_worker_.load()) ESP_LOGE(TAG, "Cannot start Wi-Fi monitor");
     }
 
     bool WaitForInitialWifi() override {
@@ -819,6 +832,7 @@ private:
         network_page_ = NetworkPage::Disconnected;
         NetworkPage rendered = NetworkPage::Hidden;
         do {
+            if (xTaskGetCurrentTaskHandle() == wifi_worker_.load()) ProcessManualUpdate();
             auto page = network_page_.load();
             if (page != rendered) {
                 if (page == NetworkPage::Home) display_->ShowDisconnectedHome(true);
@@ -831,7 +845,6 @@ private:
     }
 
     // The Wi-Fi monitor schedules probes; only a manual check owns the update UI.
-    std::atomic<bool> checking_in_background_{false};
     int64_t next_check_us_ = 0;
     void ProbeUpdate() {
         pocket_update::Release candidate;
@@ -846,16 +859,9 @@ private:
             return;
         }
         auto now = esp_timer_get_time();
-        if (now < next_check_us_ || FirmwareUpdateActive() || checking_in_background_.exchange(true)) return;
+        if (now < next_check_us_ || FirmwareUpdateActive()) return;
         next_check_us_ = now + 24LL * 60 * 60 * 1000000;
-        auto probe = [](void* ctx) {
-            auto* self = static_cast<CustomBoard*>(ctx);
-            self->ProbeUpdate();
-            self->checking_in_background_ = false;
-            vTaskDelete(nullptr);
-        };
-        if (xTaskCreate(probe,"ota_probe",12288,this,2,nullptr)!=pdPASS)
-            checking_in_background_ = false;
+        ProbeUpdate();
     }
 
     void MonitorWifi() {
@@ -866,8 +872,9 @@ private:
                 StartBackgroundManagement(display_);
             }
             FinishFirstManagement();
+            ProcessManualUpdate();
             MaybeCheckForUpdate();
-            vTaskDelay(pdMS_TO_TICKS(1500));
+            ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(1500));
         }
     }
 #endif
@@ -978,7 +985,18 @@ private:
             if (lan_switching_) return;
             if (lan_option_ >= 0) { lan_option_=-1; RenderMenu(); return; }
             if (peer_index_ >= 0) { peer_index_=-1; RenderMenu(); return; }
-            if (!GuideButton(true)) ToggleMenu(); });
+            if (GuideButton(true)) return;
+            auto page = display_->GetExitPage();
+            if (page == CustomLcdDisplay::ExitPage::Playback) {
+                if (!RequestMusicFromButton(MusicAction::Stop)) return;
+            }
+            if (page != CustomLcdDisplay::ExitPage::None) {
+                auto& app = Application::GetInstance();
+                if (!app.IsVoicePaused()) app.SetVoicePaused(true);
+                return;
+            }
+            ToggleMenu();
+        });
         boot_button_.OnDoubleClick([this]() {
             if (PhoneSetupActive()) return;
             if (lan_option_ >= 0 || peer_index_ >= 0 || favorite_index_ >= 0 || checklist_index_ >= 0) return;
@@ -1031,19 +1049,24 @@ private:
                 if (queued) Application::GetInstance().FinishChatForMusic();
                 return queued;
             });
-        mcp_server.AddTool("self.music.control", "音乐控制，未指定曲目时用 resume_music 续播音乐，resume_story 续播故事；点播故事时配合 path 指定章节。其他 action 有 sequential 顺序播放、shuffle 随机播放、next 下一首或 stop 停止。",
+        mcp_server.AddTool("self.music.control", "音乐控制，未指定曲目时用 resume_music 续播音乐，resume_story 续播故事；点播故事时配合 path 指定章节。用户要求循环播放指定歌曲用 repeat_music，循环播放指定故事用 repeat_story，path 必填，填写歌名、书名、章节名或卡内相对路径。其他 action 有 sequential 顺序播放、shuffle 随机播放、next 下一首或 stop 停止。",
             PropertyList({ Property("action", kPropertyTypeString), Property("path", kPropertyTypeString, std::string()) }),
             [this](const PropertyList& properties) -> ReturnValue {
                 auto action = properties["action"].value<std::string>();
                 MusicAction command;
                 if (action == "resume_music") command = MusicAction::Play;
                 else if (action == "resume_story") command = MusicAction::Story;
+                else if (action == "repeat_music") command = MusicAction::RepeatFile;
+                else if (action == "repeat_story") command = MusicAction::RepeatStory;
                 else if (action == "sequential") command = MusicAction::Sequential;
                 else if (action == "shuffle") command = MusicAction::Shuffle;
                 else if (action == "next") command = MusicAction::Next;
                 else if (action == "stop") command = MusicAction::Stop;
                 else return false;
-                bool queued = music_.Request(command, command == MusicAction::Story ? properties["path"].value<std::string>().c_str() : "");
+                bool repeat = command == MusicAction::RepeatFile || command == MusicAction::RepeatStory;
+                auto path = repeat || command == MusicAction::Story ? properties["path"].value<std::string>() : "";
+                if (repeat && (path.empty() || !ValidPocketPath(path))) return false;
+                bool queued = music_.Request(command, path.c_str());
                 if (queued && command != MusicAction::Stop) Application::GetInstance().FinishChatForMusic();
                 return queued;
             });

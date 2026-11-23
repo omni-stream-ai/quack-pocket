@@ -66,6 +66,7 @@ enum AudioTaskType {
     kAudioTaskTypeEncodeToSendQueue,
     kAudioTaskTypeEncodeToTestingQueue,
     kAudioTaskTypeDecodeToPlaybackQueue,
+    kAudioTaskTypeMusic,
 };
 
 struct AudioTask {
@@ -108,6 +109,9 @@ public:
 
     void SetCallbacks(AudioServiceCallbacks& callbacks);
 
+    void InterruptMusicForWake();
+    void EndWakeInterruption();
+    bool IsMusicInterrupted() const { return wake_music_hold_.load(); }
     bool PushMusicPcm(std::vector<int16_t>& pcm);
     bool PushPacketToDecodeQueue(std::unique_ptr<AudioStreamPacket> packet, bool wait = false);
     std::unique_ptr<AudioStreamPacket> PopPacketFromSendQueue();
@@ -141,6 +145,9 @@ private:
     TaskHandle_t audio_output_task_handle_ = nullptr;
     TaskHandle_t opus_codec_task_handle_ = nullptr;
     std::mutex audio_queue_mutex_;
+    std::atomic<bool> wake_music_hold_{false};
+    bool music_in_output_ = false;
+    uint32_t interrupted_output_us_ = 0; // Protected by audio_queue_mutex_.
     uint32_t decoder_generation_ = 0; // Protected by audio_queue_mutex_.
     std::condition_variable audio_queue_cv_;
     std::deque<std::unique_ptr<AudioStreamPacket>> audio_decode_queue_;

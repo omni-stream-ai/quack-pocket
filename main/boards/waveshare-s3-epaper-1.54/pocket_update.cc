@@ -10,6 +10,8 @@
 #include <esp_app_desc.h>
 #include <esp_crt_bundle.h>
 #include <esp_http_client.h>
+#include <esp_heap_caps.h>
+#include <esp_log.h>
 #include <esp_https_ota.h>
 #include <esp_ota_ops.h>
 #include <mbedtls/pk.h>
@@ -102,10 +104,22 @@ std::string Check(Release& release) {
     if (!ValidSource(source)) return "请在手机设置中检查更新地址";
     auto cfg = HttpConfig(source);
     auto client = esp_http_client_init(&cfg);
-    if (!client) return "内存不足，请稍后重试";
+    if (!client) {
+        constexpr auto caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+        ESP_LOGE("pocket_ota", "Cannot create manifest client: internal free=%u largest=%u",
+                 unsigned(heap_caps_get_free_size(caps)), unsigned(heap_caps_get_largest_free_block(caps)));
+        return "无法创建更新连接，内存不足";
+    }
     std::unique_ptr<esp_http_client, decltype(&esp_http_client_cleanup)> close(client, esp_http_client_cleanup);
-    if (esp_http_client_open(client, 0) != ESP_OK || esp_http_client_fetch_headers(client) < 0 ||
-        esp_http_client_get_status_code(client) != 200) return "未取得发布清单，请检查网络和更新地址";
+    auto err = esp_http_client_open(client, 0);
+    if (err != ESP_OK) {
+        ESP_LOGW("pocket_ota", "Manifest connection failed: %s", esp_err_to_name(err));
+        if (err == ESP_ERR_NO_MEM) return "更新连接内存不足";
+        return "更新连接失败，请检查网络和更新地址";
+    }
+    if (esp_http_client_fetch_headers(client) < 0) return "未收到完整的更新响应";
+    int status = esp_http_client_get_status_code(client);
+    if (status != 200) return "更新服务器返回 HTTP " + std::to_string(status);
     std::string body;
     char chunk[512];
     int n;

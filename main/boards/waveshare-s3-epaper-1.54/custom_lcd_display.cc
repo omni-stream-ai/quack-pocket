@@ -139,23 +139,34 @@ void CustomLcdDisplay::lvgl_flush_cb(lv_display_t * disp, const lv_area_t * area
         return;
     }
     auto *pixels = reinterpret_cast<const uint16_t*>(color_p);
-    bool changed = false;
+    unsigned changed = 0;
     for (int y = area->y1; y <= area->y2; ++y) {
         for (int x = area->x1; x <= area->x2; ++x) {
             uint16_t rgb = *pixels++;
             unsigned luminance = 299 * ((rgb >> 11) * 255 / 31) +
                                  587 * (((rgb >> 5) & 63) * 255 / 63) +
                                  114 * ((rgb & 31) * 255 / 31);
-            changed |= driver->EPD_DrawColorPixel(x, y, luminance < 128000 ? DRIVER_COLOR_BLACK : DRIVER_COLOR_WHITE);
+            changed += driver->EPD_DrawColorPixel(x, y, luminance < 128000 ? DRIVER_COLOR_BLACK : DRIVER_COLOR_WHITE);
         }
     }
-    if (changed && ++driver->partial_updates_ >= 30) {
-        driver->EPD_Init();
-        driver->EPD_DisplayPartBaseImage();
-        driver->EPD_Init_Partial();
-        driver->partial_updates_ = 0;
-    } else if (changed) {
-        driver->EPD_DisplayPart();
+    if (changed) {
+        ++driver->partial_updates_;
+        driver->changed_pixels_ += changed;
+        // Small changes such as the clock should not count as a whole page.
+        // Still clean periodically when the same small area changes repeatedly.
+        const unsigned screen_pixels = driver->Width * driver->Height;
+        if (driver->partial_updates_ >= 120 ||
+            (driver->partial_updates_ >= 30 && driver->changed_pixels_ >= 6 * screen_pixels)) {
+            ESP_LOGI(TAG, "Panel cleaning: %u updates, %u changed pixels",
+                     driver->partial_updates_, driver->changed_pixels_);
+            driver->EPD_Init();
+            driver->EPD_DisplayPartBaseImage();
+            driver->EPD_Init_Partial();
+            driver->partial_updates_ = 0;
+            driver->changed_pixels_ = 0;
+        } else {
+            driver->EPD_DisplayPart();
+        }
     }
     lv_disp_flush_ready(disp);
 }
@@ -581,6 +592,58 @@ void CustomLcdDisplay::ShowMenu(const std::string& header, const char* icon, con
     Unlock();
 }
 
+void CustomLcdDisplay::ShowPlayback(bool story, const std::string& path, const char* mode) {
+    if (!Lock(3000)) return;
+    ResetSaver();
+    if (!playback_page_) playback_page_ = CreatePageLabel();
+    lv_obj_remove_flag(playback_page_, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(playback_page_);
+    if (menu_label_) lv_obj_move_foreground(menu_label_);
+    if (setup_overlay_) lv_obj_move_foreground(setup_overlay_);
+    lv_obj_clean(playback_page_);
+    lv_label_set_text(playback_page_, story ? "故事播放" : "音乐播放");
+    auto label = [this](const char* text, int y, bool icon = false) {
+        auto* obj = lv_label_create(playback_page_);
+        lv_obj_set_width(obj, 180);
+        lv_obj_set_style_text_align(obj, LV_TEXT_ALIGN_CENTER, 0);
+        lv_label_set_long_mode(obj, LV_LABEL_LONG_DOT);
+        if (icon) lv_obj_set_style_text_font(obj, &font_awesome_30_4, 0);
+        lv_label_set_text(obj, text);
+        lv_obj_align(obj, LV_ALIGN_TOP_MID, 0, y);
+    };
+    auto slash = path.rfind('/');
+    auto title = slash == std::string::npos ? path : path.substr(slash + 1);
+    if (title.size() > 4) title.resize(title.size() - 4);
+    label(story ? FONT_AWESOME_COMMENT : FONT_AWESOME_MUSIC, 37, true);
+    if (story && slash != std::string::npos) {
+        auto book = path.substr(0, slash);
+        label(book.substr(book.rfind('/') + 1).c_str(), 83);
+    }
+    label(title.c_str(), 107);
+    label(mode, 130);
+    label("电源键 暂停 · 双击下一项", 155);
+    label("长按确认键 退出播放", 176);
+    Unlock();
+}
+
+void CustomLcdDisplay::ClosePlayback() {
+    if (!Lock(3000)) return;
+    if (playback_page_) lv_obj_delete(playback_page_);
+    playback_page_ = nullptr;
+    Unlock();
+}
+
+CustomLcdDisplay::ExitPage CustomLcdDisplay::GetExitPage() {
+    if (!Lock(3000)) return ExitPage::None;
+    ExitPage page = ExitPage::None;
+    if (!standby_page_ && !menu_label_ && !setup_overlay_) {
+        if (playback_page_) page = ExitPage::Playback;
+        else if (voice_exit_hint_ && !home_page_ && !network_page_) page = ExitPage::Voice;
+    }
+    Unlock();
+    return page;
+}
+
 static void AddHomeIndicators(lv_obj_t* page);
 
 void CustomLcdDisplay::ShowDisconnectedHome(bool reconnecting) {
@@ -592,6 +655,7 @@ void CustomLcdDisplay::ShowDisconnectedHome(bool reconnecting) {
     RenderHomeText(network_page_, reconnecting ? "Wi-Fi 重连中" : (Settings("omni_ui").GetInt("wifi_on", 1) ? "尚未设置 Wi-Fi" : "Wi-Fi 已关闭"), "说音乐口令");
     AddPocketDuck(network_page_, 136, 38);
     network_home_ = true;
+    if (playback_page_) lv_obj_move_foreground(playback_page_);
     if (menu_label_) lv_obj_move_foreground(menu_label_);
     Unlock();
 }
@@ -752,6 +816,10 @@ void CustomLcdDisplay::RefreshHome() {
 void CustomLcdDisplay::ShowHome(bool visible) {
     if (!Lock(3000)) return;
     ResetSaver();
+    if (visible && voice_exit_hint_) {
+        lv_obj_delete(voice_exit_hint_);
+        voice_exit_hint_ = nullptr;
+    }
     if (visible) {
         if (!home_page_) {
             home_page_ = CreatePageLabel();
@@ -760,10 +828,19 @@ void CustomLcdDisplay::ShowHome(bool visible) {
         }
         RenderConnectedHome();
         if (network_page_) lv_obj_move_foreground(network_page_);
+        if (playback_page_) lv_obj_move_foreground(playback_page_);
         if (menu_label_) lv_obj_move_foreground(menu_label_);
-    } else if (home_page_) {
-        lv_obj_delete(home_page_);
-        home_page_ = nullptr;
+    } else {
+        if (home_page_) {
+            lv_obj_delete(home_page_);
+            home_page_ = nullptr;
+        }
+        if (container_ && !voice_exit_hint_) {
+            voice_exit_hint_ = lv_label_create(container_);
+            lv_obj_set_width(voice_exit_hint_, LV_PCT(100));
+            lv_obj_set_style_text_align(voice_exit_hint_, LV_TEXT_ALIGN_CENTER, 0);
+            lv_label_set_text(voice_exit_hint_, "长按确认键 退出通话");
+        }
     }
     Unlock();
 }
@@ -776,6 +853,7 @@ void CustomLcdDisplay::ShowNetworkPage(const char* text) {
         if (!network_page_) network_page_ = CreatePageLabel();
         lv_obj_clean(network_page_);
         lv_label_set_text(network_page_, text);
+        if (playback_page_) lv_obj_move_foreground(playback_page_);
         if (menu_label_) lv_obj_move_foreground(menu_label_);
     } else if (network_page_) {
         lv_obj_delete(network_page_);
@@ -825,7 +903,7 @@ void CustomLcdDisplay::UpdateSaver() {
         ResetSaver();
         return;
     }
-    if (standby_page_ || !saver_available_ || (!saver_allowed_ && !home_page_ && !network_home_) || menu_label_ || (network_page_ && !network_home_) || setup_overlay_ ||
+    if (standby_page_ || !saver_available_ || (!saver_allowed_ && !home_page_ && !network_home_) || menu_label_ || playback_page_ || (network_page_ && !network_home_) || setup_overlay_ ||
         saver_layer_ || lv_tick_elaps(last_activity_) < 60000) return;
     saver_layer_ = lv_image_create(lv_display_get_screen_active(display_));
     lv_obj_add_flag(saver_layer_, LV_OBJ_FLAG_FLOATING);

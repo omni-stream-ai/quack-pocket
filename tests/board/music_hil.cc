@@ -193,6 +193,14 @@ bool Exercise(MusicPlayer& player) {
         return Await([&] { return current.load() == wanted && random_mode.load() == shuffle && written.load() >= before + 6; });
     };
     if (!Check(player.Request(MusicAction::PlayFile, path) && plays(selected, false), "exact file through ES8311")) return false;
+    auto& audio = Application::GetInstance().GetAudioService();
+    audio.InterruptMusicForWake();
+    vTaskDelay(pdMS_TO_TICKS(350)); // Allow the ES8311 write already in flight to finish.
+    unsigned held = written.load();
+    vTaskDelay(pdMS_TO_TICKS(300));
+    if (!Check(written.load() == held, "wake interruption silences local playback")) return false;
+    audio.EndWakeInterruption();
+    if (!Check(plays(selected, false), "resume interrupted track without a play command")) return false;
     uint32_t next = (selected + 1) % count;
     if (!Check(player.Request(MusicAction::Next) && plays(next, false), "next sequential track")) return false;
     if (!Check(player.Request(MusicAction::Toggle) && Await([] { return pauses.load() != 0; }), "pause acknowledged")) return false;

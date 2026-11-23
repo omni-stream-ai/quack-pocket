@@ -446,6 +446,9 @@ void Application::Start() {
         xEventGroupSetBits(event_group_, MAIN_EVENT_SEND_AUDIO);
     };
     callbacks.on_wake_word_detected = [this](const std::string& wake_word) {
+#if CONFIG_BOARD_TYPE_WAVESHARE_S3_ePaper_1_54
+        audio_service_.InterruptMusicForWake();
+#endif
         xEventGroupSetBits(event_group_, MAIN_EVENT_WAKE_WORD_DETECTED);
     };
     callbacks.on_vad_change = [this](bool speaking) {
@@ -760,6 +763,9 @@ void Application::MainEventLoop() {
                 board.WakeFromVoiceStandby();
                 OnWakeWordDetected();
             }
+#if CONFIG_BOARD_TYPE_WAVESHARE_S3_ePaper_1_54
+            audio_service_.EndWakeInterruption();
+#endif
         }
 
         if (bits & MAIN_EVENT_VAD_CHANGE) {

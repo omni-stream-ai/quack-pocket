@@ -54,6 +54,8 @@ class MusicCommands(unittest.TestCase):
             ("control_music", {"action":"resume_music"}, "self.music.control"),
             ("control_music", {"action":"resume_story"}, "self.music.control"),
             ("control_music", {"action":"resume_story","path":"第一章"}, "self.music.control"),
+            ("control_music", {"action":"repeat_music","path":"小星星"}, "self.music.control"),
+            ("control_music", {"action":"repeat_story","path":"故事/格林童话"}, "self.music.control"),
             ("set_volume", {"volume": 20}, "self.audio_speaker.set_volume"),
             ("adjust_volume", {"delta": -10}, "self.audio_speaker.adjust_volume"),
             ("enter_local_mode", {}, "self.voice.enter_local_mode"),
@@ -66,6 +68,13 @@ class MusicCommands(unittest.TestCase):
         for bad in (-1, 101, True):
             with self.assertRaises(ValueError):
                 music_call({"function": {"name": "set_volume", "arguments": json.dumps({"volume": bad})}})
+
+    def test_named_repeat_requires_valid_path(self):
+        import json
+        for args in ({"action": "repeat_music"}, {"action": "repeat_story", "path": ""},
+                     {"action": "repeat_story", "path": "故事/../其他"}, {"action": "repeat_music", "path": "音乐/专辑"}):
+            with self.subTest(args=args), self.assertRaises(ValueError):
+                music_call({"function": {"name": "control_music", "arguments": json.dumps(args)}})
 
     def test_playlist_commands(self):
         import json

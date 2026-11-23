@@ -55,6 +55,7 @@ public:
     void AbortSpeaking(AbortReason reason);
     void ToggleChatState();
     void SetVoicePaused(bool paused);
+    bool InShortcutConversation() const { return shortcut_conversation_.load(); }
     bool IsVoicePaused() const { return voice_paused_.load(); }
     void FinishChatForMusic();
     void StartListening();

@@ -19,7 +19,7 @@ from .opus import AudioCodec
 from .provider import Provider
 from .realtime import QwenRealtime
 
-SYSTEM = {"role": "system", "content": "你是便携语音助手。使用用户的语言简短回答。用户提到歌单或播放列表时优先使用 playlist 管理或按名称播放歌单。用户点播指定歌曲时优先调用 play_file 查找并播放存储卡上的歌曲，无需用户说明“本地”。用户只要求播放音乐而未指定歌曲时，调用 control_music 的 resume_music 续播。播放故事用 resume_story，未指定章节时续播，指定章节时填 path。"}
+SYSTEM = {"role": "system", "content": "你是便携语音助手。使用用户的语言简短回答。用户提到歌单或播放列表时优先使用 playlist 管理或按名称播放歌单。用户点播指定歌曲时优先调用 play_file 查找并播放存储卡上的歌曲，无需用户说明“本地”。用户只要求播放音乐而未指定歌曲时，调用 control_music 的 resume_music 续播。播放故事用 resume_story，未指定章节时续播，指定章节时填 path。用户要求循环指定歌曲或故事时，用 control_music 的 repeat_music 或 repeat_story，path 填指定的歌名、书名或章节名。"}
 LOG = logging.getLogger("omni.voice")
 
 
@@ -70,10 +70,14 @@ def music_call(call):
                 and isinstance(track, str) and len(track.encode()) < 1024 and (track.strip() or op not in ("add", "remove"))):
             return "self.music.playlist", args
     song = name == "play_file" and isinstance(args, dict) and set(args) == {"path"}
-    story = name == "control_music" and isinstance(args, dict) and set(args) == {"action", "path"} and args["action"] == "resume_story"
-    if song or story:
+    named_control = name == "control_music" and isinstance(args, dict) and set(args) == {"action", "path"} and args["action"] in (
+        "resume_story", "repeat_music", "repeat_story"
+    )
+    if song or named_control:
         path = args["path"]
-        if isinstance(path, str) and 0 < len(path.encode()) < 1024 and ("/" not in path or path.lower().endswith(".mp3")) and all(
+        if isinstance(path, str) and path.strip() and len(path.encode()) < 1024 and (
+            "/" not in path or path.lower().endswith(".mp3") or args.get("action") == "repeat_story"
+        ) and all(
             item not in ("", ".", "..") for item in path.split("/")
         ) and not any(ord(c) < 32 or c in "\\:" for c in path):
             return ("self.music.play_file" if song else "self.music.control"), args

@@ -42,6 +42,10 @@ public:
     void ShowGuide(int page);
     bool ShowVoiceStandby(bool visible);
     void ShowMenu(const std::string& header, const char* icon, const char* title, const std::string& detail, const char* navigation = "电源键 短按下一项 · 双击上一项");
+    void ShowPlayback(bool story, const std::string& path, const char* mode);
+    void ClosePlayback();
+    enum class ExitPage { None, Voice, Playback };
+    ExitPage GetExitPage();
     void RefreshHome();
     void ShowDisconnectedHome(bool reconnecting);
     void CloseMenu();
@@ -78,6 +82,8 @@ private:
     uint8_t saver_pixels_[8 + saver_bytes]{};
     lv_obj_t* CreatePageLabel();
     lv_obj_t* network_page_ = nullptr;
+    lv_obj_t* voice_exit_hint_ = nullptr;
+    lv_obj_t* playback_page_ = nullptr;
     lv_obj_t* menu_label_ = nullptr;
     lv_obj_t* bluetooth_prompt_ = nullptr;
     lv_obj_t* setup_overlay_ = nullptr;
@@ -87,6 +93,7 @@ private:
     spi_device_handle_t spi;
     uint8_t *buffer = NULL;
     unsigned partial_updates_ = 0;
+    unsigned changed_pixels_ = 0;
     
     static void lvgl_flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t * color_p);
     

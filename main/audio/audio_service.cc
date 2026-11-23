@@ -4,6 +4,7 @@
 #include <freertos/idf_additions.h>
 #endif
 #include <cstring>
+#include <algorithm>
 
 #if CONFIG_USE_AUDIO_PROCESSOR
 #include "processors/afe_audio_processor.h"
@@ -293,6 +294,7 @@ void AudioService::AudioOutputTask() {
 
         auto task = std::move(audio_playback_queue_.front());
         audio_playback_queue_.pop_front();
+        music_in_output_ = task->type == kAudioTaskTypeMusic;
         audio_queue_cv_.notify_all();
         lock.unlock();
 
@@ -302,6 +304,15 @@ void AudioService::AudioOutputTask() {
             codec_->EnableOutput(true);
         }
         codec_->OutputData(task->pcm);
+        if (task->type == kAudioTaskTypeMusic) {
+            std::lock_guard<std::mutex> finished(audio_queue_mutex_);
+            music_in_output_ = false;
+            if (interrupted_output_us_) {
+                ESP_LOGI(TAG, "Last local PCM write finished %u us after wake",
+                         uint32_t(esp_timer_get_time()) - interrupted_output_us_);
+                interrupted_output_us_ = 0;
+            }
+        }
 
         /* Update the last output time */
         last_output_time_ = std::chrono::steady_clock::now();
@@ -442,13 +453,30 @@ void AudioService::PushTaskToEncodeQueue(AudioTaskType type, std::vector<int16_t
     audio_queue_cv_.notify_all();
 }
 
+void AudioService::InterruptMusicForWake() {
+    const uint32_t now = esp_timer_get_time();
+    std::lock_guard<std::mutex> lock(audio_queue_mutex_);
+    wake_music_hold_ = true;
+    const auto before = audio_playback_queue_.size();
+    audio_playback_queue_.erase(std::remove_if(audio_playback_queue_.begin(), audio_playback_queue_.end(),
+        [](const auto& task) { return task->type == kAudioTaskTypeMusic; }), audio_playback_queue_.end());
+    if (music_in_output_) interrupted_output_us_ = now;
+    audio_queue_cv_.notify_all();
+    ESP_LOGI(TAG, "Wake detected: local PCM gated in %u us, removed=%u, in_output=%d",
+             uint32_t(esp_timer_get_time()) - now, unsigned(before - audio_playback_queue_.size()), music_in_output_);
+}
+
+void AudioService::EndWakeInterruption() {
+    wake_music_hold_ = false;
+}
+
 bool AudioService::PushMusicPcm(std::vector<int16_t>& pcm) {
     std::unique_lock<std::mutex> lock(audio_queue_mutex_);
-    if (service_stopped_ || audio_playback_queue_.size() >= MAX_PLAYBACK_TASKS_IN_QUEUE) {
+    if (wake_music_hold_ || service_stopped_ || audio_playback_queue_.size() >= MAX_PLAYBACK_TASKS_IN_QUEUE) {
         return false;
     }
     auto task = std::make_unique<AudioTask>();
-    task->type = kAudioTaskTypeDecodeToPlaybackQueue;
+    task->type = kAudioTaskTypeMusic;
     task->timestamp = 0;
     task->pcm.swap(pcm);
     audio_playback_queue_.push_back(std::move(task));

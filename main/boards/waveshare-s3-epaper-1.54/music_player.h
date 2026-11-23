@@ -7,7 +7,7 @@
 
 #include "music/music_index.h"
 
-enum class MusicAction { RecordMemo, HearMemo, Story, StoryBook, StoryRestart, StoryChapter, PlaybackSettings, InstallModel, Listen, Play, Pause, Previous, Toggle, Next, ChangeMode, Sequential, Shuffle, Playlist, PlayFile, Prepare, Refresh, Stop };
+enum class MusicAction { RecordMemo, HearMemo, Story, StoryBook, StoryRestart, StoryChapter, RepeatStory, RepeatFile, PlaybackSettings, InstallModel, Listen, Play, Pause, Previous, Toggle, Next, ChangeMode, Sequential, Shuffle, Playlist, PlayFile, Prepare, Refresh, Stop };
 
 class MusicPlayer {
 public:
