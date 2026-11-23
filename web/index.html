@@ -57,6 +57,7 @@ small,.guide details{color:var(--muted)}small[role=status]{display:block;color:v
  #appNav a{flex:1;padding:.6rem .5rem}
 }
 .task-group a small{margin-left:auto;color:var(--muted);font-size:.83rem;font-weight:400}.task-group a{gap:.75rem}.task-group a:after{margin-left:auto}.task-group a:has(small):after{margin-left:0}
+#overview:not([hidden]) + #taskBar + .settings-content{margin-top:1rem}#contentState{padding:.3rem 0 1rem;color:var(--muted)}
 </style></head><body>
 <header><div class="brand"><img id="brandIcon" width="80" height="80" alt=""><div><h1>嘎嘎口袋</h1><p>设备设置 · 网络、语音与墨水屏</p></div></div><div class="connection-tools"><p id="connection" role="status">准备连接设备…</p><button id="disconnect" hidden>断开蓝牙连接</button><button id="install" hidden>安装嘎嘎口袋</button></div></header>
 <section class="guide" id="guide" hidden><h2>连接附近的设备</h2><p>打开手机蓝牙，点「连接蓝牙设备」，选择附近的 Omni 设备。若列表为空，请检查鸭子「手机与网络 → 蓝牙开关」是否开启。</p>
@@ -66,7 +67,7 @@ small,.guide details{color:var(--muted)}small[role=status]{display:block;color:v
 <section class="guide" id="authorization" hidden><h2>授权此浏览器</h2>
 <label>在鸭子上显示的名称<input id="browserName" maxlength="16" placeholder="例如：妈妈的手机"></label>
 <button id="requestAccess">请求连接</button><p id="authStatus" role="status"></p></section>
-<form id="settings" hidden><nav id="appNav" aria-label="主导航"><a href="#device">设备</a><a href="#media">内容</a><a href="#voice">语音</a></nav><nav id="overview" class="task-groups" aria-label="设备总览"><section class="task-group" id="media"><h2>我的内容</h2><a href="#library" data-sections="library mediaConfig">音乐与播放列表<small id="librarySummary"></small></a><a href="#sdBrowser" data-sections="sdBrowser">浏览 SD 卡</a><a href="#checklist" data-sections="checklist">口袋清单</a></section><section class="task-group" id="voice"><h2>语音设置</h2><a href="#service" data-sections="service llmSettings speechSettings standby">配置语音服务<small id="serviceSummary"></small></a><a href="#controls" data-sections="controls words">管理语音功能与技能</a></section><section class="task-group" id="device"><h2>我的设备</h2><a href="#wifi" data-sections="wifi bluetoothSettings">管理网络连接<small id="wifiSummary"></small></a><a href="#screen" data-sections="screen shutdownScreen">更换屏幕画面</a><a href="#updateSource" data-sections="updateSource">检查固件更新</a></section></nav><div id="taskBar" hidden><a href="#overview">‹ 设备总览</a><div id="taskTabs" aria-label="任务选项"></div></div><div class="settings-content">
+<form id="settings" hidden><nav id="appNav" aria-label="主导航"><a href="#device">设备</a><a href="#media">内容</a><a href="#voice">语音</a></nav><nav id="overview" class="task-groups" aria-label="设备总览"><section class="task-group" id="media"><h2>我的内容</h2><p id="contentState" role="status">正在读取设备的内容功能…</p><a href="#library" data-sections="library mediaConfig">音乐与播放列表<small id="librarySummary"></small></a><a href="#sdBrowser" data-sections="sdBrowser">浏览 SD 卡</a><a href="#checklist" data-sections="checklist">口袋清单</a></section><section class="task-group" id="voice"><h2>语音设置</h2><a href="#service" data-sections="service llmSettings speechSettings standby">配置语音服务<small id="serviceSummary"></small></a><a href="#controls" data-sections="controls words">管理语音功能与技能</a></section><section class="task-group" id="device"><h2>我的设备</h2><a href="#wifi" data-sections="wifi bluetoothSettings">管理网络连接<small id="wifiSummary"></small></a><a href="#screen" data-sections="screen shutdownScreen">更换屏幕画面</a><a href="#updateSource" data-sections="updateSource">检查固件更新</a></section></nav><div id="taskBar" hidden><a href="#overview">‹ 设备总览</a><div id="taskTabs" aria-label="任务选项"></div></div><div class="settings-content">
 <fieldset id="wifi"><legend>无线网络</legend>
 <details id="picker" open><summary>附近的 2.4 GHz Wi-Fi</summary><div id="networks"></div></details>
 <button type="button" id="scan">刷新网络列表</button><small id="scanStatus" role="status"></small>
@@ -272,10 +273,10 @@ function showCategory(){
  }
  const route=document.getElementById(location.hash.slice(1));
  const requested=selected?.closest('.task-group')||(route?.matches('.task-group')?route:null);
- const group=requested?.querySelector('a:not([hidden])')?requested:el('device');
+ const group=requested||el('device');
  for(const tab of el('appNav').querySelectorAll('a')){
   const panel=document.querySelector(tab.hash);
-  tab.hidden=!panel.querySelector('a:not([hidden])');panel.hidden=panel!==group;
+  panel.hidden=panel!==group;
   if(panel===group)tab.setAttribute('aria-current','page');else tab.removeAttribute('aria-current');
  }
  const back=el('taskBar').querySelector('a');
@@ -715,12 +716,27 @@ async function browseCard(path,cursor=0){
 el('sdOpen').onclick=()=>browseCard(sdPath);
 el('sdUp').onclick=()=>browseCard(sdPath.split('/').slice(0,-1).join('/'));
 el('sdMore').onclick=()=>browseCard(sdPath,sdNext);
+let profileGeneration=0;
 async function load(){
+ const current=++profileGeneration;
  el('retry').hidden=true;el('status').textContent='';
+ el('contentState').hidden=false;el('contentState').textContent='正在读取设备的内容功能…';
  try{
-  const response=await deviceRequest('/profile',{cache:'no-store'});
-  if(!response.ok)throw Error('无法读取设置');
+  let response=await deviceRequest('/profile',{cache:'no-store'});
+  if(response.status===503){
+   await new Promise(resolve=>setTimeout(resolve,700));
+   if(current!==profileGeneration)return;
+   response=await deviceRequest('/profile',{cache:'no-store'});
+  }
+  if(current!==profileGeneration)return;
+  if(!response.ok){
+   const body=(await response.text()).trim();
+   const detail=body && !/^[<{\[]/.test(body)?body.slice(0,160):'';
+   const fallback=response.status===503?'设备管理服务暂时未响应，请重试':response.status===403?'请重新授权此浏览器':'设备未能返回设置，请重试';
+   throw Error('读取设备设置失败（'+response.status+'） · '+(detail||fallback));
+  }
   const data=await response.json();
+  if(current!==profileGeneration)return;
   playlists=data.playlists||{};el('playlistPanel').hidden=!data.playlists;renderPlaylists();
   mediaFolders=data.media;favorites=data.favorites||[];el('library').hidden=!data.media;renderFavorites();
   el('mediaConfig').hidden=!data.media;
@@ -760,7 +776,14 @@ async function load(){
   savedUrl=data.url||'';hasToken=Boolean(data.has_token);updateTokenHint();
   el('wifiHint').textContent=data.has_wifi?'Wi-Fi 名称留空可保留已保存的网络。':'请输入设备将连接的 2.4 GHz Wi-Fi。';
   modeChanged();el('save').disabled=false;
- }catch(e){el('status').textContent=e.message;el('retry').hidden=false}
+  el('contentState').hidden=!!(data.media||data.sd_browser||Array.isArray(data.checklist));
+  el('contentState').textContent='当前固件未提供内容管理功能。';
+  scanNetworks();saverEditors.forEach(editor=>editor.load());
+ }catch(e){
+  if(current!==profileGeneration)return;
+  el('contentState').textContent='尚未读到设备支持的内容功能。';
+  el('status').textContent=e.message;el('retry').hidden=false;
+ }
 }
 function saverEditor(path,suffix){
  const field=id=>el(id+suffix);
@@ -986,7 +1009,7 @@ function openSettings(){
  el('authorization').hidden=true;
  el('guide').hidden=true;el('settings').hidden=false;
  if(lanDevice)startPresence();
- load();scanNetworks();saverEditors.forEach(editor=>editor.load());
+ load();
 }
 function disconnectManually(){
  device?.gatt.disconnect();
@@ -994,7 +1017,7 @@ function disconnectManually(){
 el('disconnect').onclick=disconnectManually;
 function disconnected(event){
  if(event && event.target!==device)return;
- device=null;
+ ++profileGeneration;device=null;
  el('disconnect').hidden=true;
  ++cardConnection;if(transfer)transfer.cancelled=true;closePreview();
  ++searchGeneration;el('searchHits').replaceChildren();el('moreMusic').hidden=true;

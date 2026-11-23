@@ -23,6 +23,8 @@ PROBE = """<script>
     const check = (condition, message) => { if (!condition) throw Error(message); };
     try {
         await wait(() => !byId('retry').hidden);
+        check(byId('status').textContent.includes('503') && byId('status').textContent.includes('设备服务繁忙'),'Missing failure detail');
+        check(!document.querySelector('#appNav a[href="#media"]').hidden,'Content tab missing after load failure');
         byId('retry').click();
         await wait(() => !byId('save').disabled);
         check(byId('updateUrl').value==='https://device.test/manifest.json','Missing update source');
@@ -332,7 +334,10 @@ class PhoneSetup(unittest.TestCase):
                     profile.update(media=dict(music="",stories="故事",messages="留言",minutes=15,
                                               record_seconds=60,chapter_stop=True),sd_browser=True,sd_manage=True,checklist=[],favorites=[])
                     profile["offline_words"] = "播放\n暂停\n下一首\n上一首\n加音量\n降音量"
-                    self.reply(503 if Handler.reads == 1 else 200, "application/json", json.dumps(profile))
+                    if Handler.reads <= 2:
+                        self.reply(503, "text/plain", "设备服务繁忙")
+                    else:
+                        self.reply(200, "application/json", json.dumps(profile))
                 else:
                     self.send_error(404)
 
