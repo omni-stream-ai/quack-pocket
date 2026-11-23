@@ -59,8 +59,8 @@ small,.guide details{color:var(--muted)}small[role=status]{display:block;color:v
 .task-group a small{margin-left:auto;color:var(--muted);font-size:.83rem;font-weight:400}.task-group a{gap:.75rem}.task-group a:after{margin-left:auto}.task-group a:has(small):after{margin-left:0}
 </style></head><body>
 <header><div class="brand"><img id="brandIcon" width="80" height="80" alt=""><div><h1>嘎嘎口袋</h1><p>设备设置 · 网络、语音与墨水屏</p></div></div><div class="connection-tools"><p id="connection" role="status">准备连接设备…</p><button id="disconnect" hidden>断开蓝牙连接</button><button id="install" hidden>安装嘎嘎口袋</button></div></header>
-<section class="guide" id="guide" hidden><h2>连接附近的设备</h2><p>打开手机蓝牙，点「选择蓝牙设备」，选择附近的 Omni 设备。若列表为空，请检查鸭子「手机与网络 → 蓝牙开关」是否开启。</p>
-<p>系统提示配对时，输入墨水屏上「蓝牙配对」旁的<strong>六位数字</strong>。</p><button id="reconnect" hidden>连接上次的设备</button><button id="connect">选择蓝牙设备</button><p id="feedback" role="status"></p>
+<section class="guide" id="guide" hidden><h2>连接附近的设备</h2><p>打开手机蓝牙，点「连接蓝牙设备」，选择附近的 Omni 设备。若列表为空，请检查鸭子「手机与网络 → 蓝牙开关」是否开启。</p>
+<p>系统提示配对时，输入墨水屏上「蓝牙配对」旁的<strong>六位数字</strong>。</p><button id="connect">连接蓝牙设备</button><p id="feedback" role="status"></p>
 <p>同一 Wi-Fi 下，也可在设备主菜单选择「手机与网络 → 同网扫码管理」，扫描屏幕上的网址。</p>
 <details><summary>用设备热点打开设置</summary>扫描墨水屏上的 Wi-Fi 二维码，加入热点后打开 <a href="http://192.168.4.1/">192.168.4.1</a>。</details></section>
 <section class="guide" id="authorization" hidden><h2>授权此浏览器</h2>
@@ -988,26 +988,14 @@ function openSettings(){
  if(lanDevice)startPresence();
  load();scanNetworks();saverEditors.forEach(editor=>editor.load());
 }
-let rememberedDevice=null, connectionStarted=false;
-function showRemembered(){
- const saved=localStorage.getItem('quack.lastDevice');
- el('reconnect').hidden=!saved;
- if(saved){
-  el('reconnect').textContent='连接 '+(rememberedDevice?.name||localStorage.getItem('quack.lastName')||'上次的设备');
-  el('connect').textContent='选择其他设备';
- }
-}
 function disconnectManually(){
- if(!device)return;
- localStorage.setItem('quack.pausedDevice',device.id);
- device.gatt.disconnect();
+ device?.gatt.disconnect();
 }
 el('disconnect').onclick=disconnectManually;
 function disconnected(event){
  if(event && event.target!==device)return;
  device=null;
  el('disconnect').hidden=true;
- showRemembered();
  ++cardConnection;if(transfer)transfer.cancelled=true;closePreview();
  ++searchGeneration;el('searchHits').replaceChildren();el('moreMusic').hidden=true;
  el('pickDirectory').hidden=true;el('checkStatus').textContent='';el('mediaStatus').textContent='';el('libraryStatus').textContent='';
@@ -1021,26 +1009,16 @@ function disconnected(event){
  el('settings').reset();saverEditors.forEach(editor=>editor.reset());
  el('save').disabled=true;el('leave').disabled=false;el('saveWords').disabled=true;
  for(const id of ['networks','savedWifi','wifiStatus','wordsStatus','imageStatus'])el(id).replaceChildren();
- el('connection').textContent='设备已断开';el('feedback').textContent='可以重新连接上次的设备，也可以选择其他设备。';
+ el('connection').textContent='设备已断开';el('feedback').textContent='点「连接蓝牙设备」可再次连接。';
 }
-async function connectDevice(previous, useSaved=false){
+async function connectDevice(){
  if(el('connect').disabled)return;
- connectionStarted=true;
- el('reconnect').disabled=el('connect').disabled=true;
+ el('connect').disabled=true;
  try{
-  const filter={services:[serviceId]};
-  const name=localStorage.getItem('quack.lastName');
-  if(!previous && useSaved && name)filter.name=name;
-  device=previous||await navigator.bluetooth.requestDevice({filters:[filter]});
+  device=await navigator.bluetooth.requestDevice({filters:[{services:[serviceId]}]});
   device.addEventListener('gattserverdisconnected',disconnected,{once:true});
   el('feedback').textContent='正在连接，请留意系统配对提示…';
-  let server;
-  try{server=await device.gatt.connect()}
-  catch(error){
-   if(!previous || error.name!=='NetworkError' || !device)throw error;
-   await new Promise(resolve=>setTimeout(resolve,900));
-   server=await previous.gatt.connect();
-  }
+  const server=await device.gatt.connect();
   const service=await server.getPrimaryService(serviceId);
   characteristic=await service.getCharacteristic(channelId);
   const capabilities=await characteristic.readValue();
@@ -1051,45 +1029,29 @@ async function connectDevice(previous, useSaved=false){
    const bytes=browserKey.match(/../g).map(pair=>parseInt(pair,16));
    await characteristic.writeValueWithResponse(Uint8Array.of(4,...bytes));
   }
-  rememberedDevice=device;
-  localStorage.setItem('quack.lastDevice',device.id);
-  localStorage.setItem('quack.lastName',device.name||'');
-  localStorage.removeItem('quack.pausedDevice');
   el('disconnect').hidden=false;
   el('connection').textContent='已通过蓝牙连接 · '+(device.name||'嘎嘎口袋');
   if(pairedAccess)openSettings();else await authorize();
  }catch(error){
   device?.gatt.disconnect();
-  el('feedback').textContent=previous?'已记住设备，但蓝牙连接未成功。请确认设备在附近，点设备名称重试。':error.name==='NotFoundError'?'未选择设备。请确认设备已开机并已打开「手机与网络 → 蓝牙开关」，再点选设备。':'连接失败，请确认蓝牙已开启，按提示输入屏幕上的六位蓝牙配对码，然后重试。';
- }finally{el('reconnect').disabled=el('connect').disabled=false}
+  el('feedback').textContent=error.name==='NotFoundError'?'未选择设备。请确认设备已开机并已打开「手机与网络 → 蓝牙开关」，再点选设备。':'连接失败，请确认蓝牙已开启，按提示输入屏幕上的六位蓝牙配对码，然后重试。';
+ }finally{el('connect').disabled=false}
 }
-el('connect').onclick=()=>connectDevice();
-el('reconnect').onclick=()=>connectDevice(rememberedDevice,true);
+el('connect').onclick=connectDevice;
 if(lanDevice){
  prepareKey('lan.'+document.querySelector('meta[name=quack-unit]').content);
  el('connection').textContent='同一 Wi-Fi · 设备扫码管理';authorize();
 }else if(localDevice){
  el('connection').textContent='已通过设备热点连接 · 可直接修改设置';openSettings();
 }else{
+ try{
+  for(const key of ['quack.lastDevice','quack.lastName','quack.pausedDevice'])localStorage.removeItem(key);
+ }catch{}
  el('guide').hidden=false;el('connection').textContent='通过蓝牙管理身边的嘎嘎口袋';
  if(!window.isSecureContext || !navigator.bluetooth){
   el('connect').disabled=true;el('guide').querySelector('details').open=true;
   el('feedback').textContent=window.isSecureContext?'此浏览器不支持网页蓝牙。可使用 Android Chrome，或按下方说明连接热点。':'网页蓝牙需要 HTTPS，请使用本站的 HTTPS 地址或连接设备热点。';
- }else if(localStorage.getItem('quack.lastDevice')){
-  showRemembered();
-  const fallback='已记住上次的设备。当前浏览器需要你在蓝牙选择框中确认连接。';
-  el('feedback').textContent=fallback;
-  if(navigator.bluetooth.getDevices){
-   navigator.bluetooth.getDevices().then(devices=>{
-    if(connectionStarted)return;
-    const previous=devices.find(d=>d.id===localStorage.getItem('quack.lastDevice'));
-    if(!previous)return;
-    rememberedDevice=previous;showRemembered();
-    if(localStorage.getItem('quack.pausedDevice')===previous.id){
-     el('feedback').textContent='已手动断开，点设备名称即可重新连接。';
-    }else connectDevice(previous);
-   }).catch(()=>{});
-  }
+
  }
 }
 </script></body></html>
