@@ -1,5 +1,8 @@
 #include "mp3_stream.h"
 
+#ifdef ESP_PLATFORM
+#include <esp_heap_caps.h>
+#endif
 #include <errno.h>
 #include <stdlib.h>
 #include <string.h>
@@ -12,6 +15,7 @@
 struct mp3_stream {
     FILE *file;
     mp3dec_t decoder;
+    mp3dec_scratch_t scratch;
     int16_t samples[MINIMP3_MAX_SAMPLES_PER_FRAME];
     unsigned char compressed[8192];
     size_t offset;
@@ -48,7 +52,11 @@ mp3_stream_t *mp3_stream_open(FILE *file)
     if (fseek(file, audio_start, SEEK_SET) != 0) {
         return NULL;
     }
+#if defined(ESP_PLATFORM) && CONFIG_SPIRAM
+    mp3_stream_t *stream = heap_caps_calloc(1, sizeof(*stream), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+#else
     mp3_stream_t *stream = calloc(1, sizeof(*stream));
+#endif
     if (stream) {
         stream->file = file;
         mp3dec_init(&stream->decoder);
@@ -74,7 +82,7 @@ int mp3_stream_read(mp3_stream_t *stream, const int16_t **mono, int *rate)
         }
 
         mp3dec_frame_info_t info = {0};
-        int count = mp3dec_decode_frame(&stream->decoder, stream->compressed + stream->offset,
+        int count = mp3dec_decode_frame_with_scratch(&stream->scratch, &stream->decoder, stream->compressed + stream->offset,
                                         (int)stream->available, stream->samples, &info);
         if (info.frame_bytes <= 0 || (size_t)info.frame_bytes > stream->available) {
             return -1;

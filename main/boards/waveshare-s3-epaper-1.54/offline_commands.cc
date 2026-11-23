@@ -17,16 +17,21 @@
 #include <esp_mn_models.h>
 #include <esp_mn_speech_commands.h>
 #include <esp_timer.h>
+#include <model_path.h>
+#include <esp_heap_caps.h>
 #include <nvs.h>
 #include <mbedtls/sha256.h>
 
-// MultiNet reads its model directory during create(). Only this task should
-// resolve files on the SD card. WakeNet keeps its flash-backed model list.
-static thread_local bool loading_music_model = false;
+// Expose this command's verified PSRAM buffers to MultiNet. Other tasks
+// continue to see the flash-backed WakeNet models.
+static thread_local srmodel_list_t* command_models = nullptr;
 extern "C" char* __real_get_model_base_path();
+extern "C" srmodel_list_t* __real_get_static_srmodels();
 extern "C" char* __wrap_get_model_base_path() {
-    static char music_model_dir[] = MUSIC_SD_ROOT "/omni-models";
-    return loading_music_model ? music_model_dir : __real_get_model_base_path();
+    return command_models ? nullptr : __real_get_model_base_path();
+}
+extern "C" srmodel_list_t* __wrap_get_static_srmodels() {
+    return command_models ? command_models : __real_get_static_srmodels();
 }
 
 namespace {
@@ -110,6 +115,12 @@ constexpr ModelFile files[] = {
     {"fst/commands_en.txt", 2350, "517b7df8f3471105ae638cd910f4d1c85f9ba7eab9e960aad2c6ca82713ad47e"},
 };
 
+bool DigestMatches(const unsigned char digest[32], const ModelFile& entry) {
+    char hex[65];
+    for (unsigned i = 0; i < 32; ++i) snprintf(hex+2*i,3,"%02x",digest[i]);
+    return strcmp(hex,entry.digest) == 0;
+}
+
 bool Verify(const std::string& path, const ModelFile& entry, const std::function<bool()>& cancelled) {
     struct stat info{};
     if (stat(path.c_str(), &info) || info.st_size != entry.bytes) return false;
@@ -125,18 +136,59 @@ bool Verify(const std::string& path, const ModelFile& entry, const std::function
     bool complete = feof(file) && !ferror(file) && !result && !mbedtls_sha256_finish(&hash, digest);
     mbedtls_sha256_free(&hash);
     fclose(file);
-    if (!complete) return false;
-    char actual[65];
-    for (size_t i = 0; i < sizeof(digest); ++i) snprintf(actual + 2*i, 3, "%02x", digest[i]);
-    return strcmp(actual, entry.digest) == 0;
+    return complete && DigestMatches(digest,entry);
 }
 
-bool CheckModel(const std::function<bool()>& cancelled) {
-    for (const auto& entry : files) {
-        if (strcmp(entry.path, "LICENSE.txt") && !Verify(std::string(root) + "/" + entry.path, entry, cancelled)) return false;
+class CommandModels {
+    static constexpr size_t file_count = std::size(files) - 1;
+    static_assert(file_count == 6, "Update the MultiNet and FST groups when changing the model files");
+    char* names_[2] = {};
+    char* file_names_[file_count] = {};
+    char* data_[file_count] = {};
+    int sizes_[file_count] = {};
+    srmodel_data_t groups_[2] = {};
+    srmodel_data_t* groups_ptr_[2] = {&groups_[0], &groups_[1]};
+    srmodel_list_t list_{};
+public:
+    ~CommandModels() {
+        command_models = nullptr;
+        for (auto* bytes : data_) free(bytes);
     }
-    return true;
-}
+    const char* Load(const std::function<bool()>& cancelled) {
+        static char mn[] = "mn7_cn", fst[] = "fst";
+        names_[0] = mn;
+        names_[1] = fst;
+        groups_[0] = {4, file_names_, data_, sizes_};
+        groups_[1] = {2, file_names_+4, data_+4, sizes_+4};
+        list_.num = 2;
+        list_.model_name = names_;
+        list_.model_data = groups_ptr_;
+        for (size_t i = 0; i < file_count; ++i) {
+            const auto& entry = files[i+1]; // The first entry is the license.
+            file_names_[i] = const_cast<char*>(strchr(entry.path,'/')+1);
+            sizes_[i] = entry.bytes;
+            std::unique_ptr<FILE,decltype(&fclose)> file(fopen((std::string(root)+"/"+entry.path).c_str(),"rb"),fclose);
+            if (!file) return "请先在语音互动中安装离线模型";
+            data_[i] = static_cast<char*>(heap_caps_malloc(entry.bytes+1,MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+            if (!data_[i]) return "外部内存不足，无法加载离线模型";
+            size_t pos = 0;
+            while (pos < entry.bytes && !cancelled()) {
+                size_t n = fread(data_[i]+pos,1,std::min(size_t(8192),entry.bytes-pos),file.get());
+                if (!n) return "模型文件不完整，请重新安装";
+                pos += n;
+            }
+            if (cancelled()) return "已退出离线口令";
+            data_[i][pos] = 0;
+            unsigned char digest[32];
+            if (fgetc(file.get()) != EOF || ferror(file.get()) ||
+                mbedtls_sha256(reinterpret_cast<unsigned char*>(data_[i]),pos,digest,0) != 0)
+                return "离线模型读取失败";
+            if (!DigestMatches(digest,entry)) return "离线模型校验失败，请重新安装";
+        }
+        command_models = &list_;
+        return nullptr;
+    }
+};
 
 bool MakeDirectory(const std::string& path) {
     if (mkdir(path.c_str(), 0775) == 0) return true;
@@ -253,8 +305,9 @@ OfflineCommand ListenOffline(const std::function<bool()>& cancelled) {
         return {};
     }
     Message("正在读取 SD 卡语音模型");
-    if (!CheckModel(cancelled)) {
-        if (!cancelled()) Message("请从主菜单选择「语音互动 → 安装离线模型」");
+    CommandModels models;
+    if (const char* error = models.Load(cancelled)) {
+        if (!cancelled()) Message(error);
         return {};
     }
     const auto configured = ReadOfflineWords();
@@ -265,9 +318,7 @@ OfflineCommand ListenOffline(const std::function<bool()>& cancelled) {
     }
     static char name[] = "mn7_cn";
     auto* engine = esp_mn_handle_from_name(name);
-    loading_music_model = true;
     auto* model = engine ? engine->create(name, 5000) : nullptr;
-    loading_music_model = false;
     if (!model) {
         Message("语音模型加载失败");
         return {};

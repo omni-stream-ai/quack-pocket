@@ -63,16 +63,20 @@ bool MqttProtocol::StartMqttClient(bool report_error) {
     int keepalive_interval = settings.GetInt("keepalive", 240);
     publish_topic_ = settings.GetString("publish_topic");
 
-    if (endpoint.empty()) {
+    if (endpoint.empty() || publish_topic_.empty()) {
         ESP_LOGW(TAG, "MQTT endpoint is not specified");
         if (report_error) {
-            SetError(Lang::Strings::SERVER_NOT_FOUND);
+            SetError("服务配置缺少 MQTT 地址或上行主题");
         }
         return false;
     }
 
     auto network = Board::GetInstance().GetNetwork();
     mqtt_ = network->CreateMqtt(0);
+    if (!mqtt_) {
+        if (report_error) SetError("无法创建 MQTT 控制连接");
+        return false;
+    }
     mqtt_->SetKeepAlive(keepalive_interval);
 
     mqtt_->OnDisconnected([this]() {
@@ -126,13 +130,20 @@ bool MqttProtocol::StartMqttClient(bool report_error) {
     size_t pos = endpoint.find(':');
     if (pos != std::string::npos) {
         broker_address = endpoint.substr(0, pos);
-        broker_port = std::stoi(endpoint.substr(pos + 1));
+        auto port_text = endpoint.substr(pos + 1);
+        char* end = nullptr;
+        long port = strtol(port_text.c_str(), &end, 10);
+        if (broker_address.empty() || *end || port < 1 || port > 65535) {
+            if (report_error) SetError("服务返回的 MQTT 地址或端口无效");
+            return false;
+        }
+        broker_port = static_cast<int>(port);
     } else {
         broker_address = endpoint;
     }
     if (!mqtt_->Connect(broker_address, broker_port, client_id, username, password)) {
         ESP_LOGE(TAG, "Failed to connect to endpoint");
-        SetError(Lang::Strings::SERVER_NOT_CONNECTED);
+        if (report_error) SetError("MQTT 控制服务器连接失败");
         return false;
     }
 

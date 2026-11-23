@@ -19,7 +19,7 @@ from .opus import AudioCodec
 from .provider import Provider
 from .realtime import QwenRealtime
 
-SYSTEM = {"role": "system", "content": "你是便携语音助手。使用用户的语言简短回答。用户点播指定歌曲时优先调用 play_file 查找并播放存储卡上的歌曲，无需用户说明“本地”。用户只要求播放音乐而未指定歌曲时，调用 control_music 顺序播放本地曲库。"}
+SYSTEM = {"role": "system", "content": "你是便携语音助手。使用用户的语言简短回答。用户提到歌单或播放列表时优先使用 playlist 管理或按名称播放歌单。用户点播指定歌曲时优先调用 play_file 查找并播放存储卡上的歌曲，无需用户说明“本地”。用户只要求播放音乐而未指定歌曲时，调用 control_music 顺序播放本地曲库。"}
 LOG = logging.getLogger("omni.voice")
 
 
@@ -49,6 +49,8 @@ def model_settings(hello):
         if not isinstance(controls, dict) or any(type(controls.get(key)) is not bool for key in ("music", "volume", "state")):
             raise ValueError("invalid voice controls")
         result["voice_controls"] = {key: controls[key] for key in ("music", "volume", "state")}
+        if type(controls.get("network")) is bool:
+            result["voice_controls"]["network"] = controls["network"]
         skills = controls.get("skills", [])
         if not isinstance(skills, list) or len(skills) > 24:
             raise ValueError("invalid voice skills")
@@ -61,6 +63,12 @@ def model_settings(hello):
 def music_call(call):
     name = call["function"]["name"]
     args = json.loads(call["function"]["arguments"])
+    if name == "playlist" and isinstance(args, dict) and set(args) <= {"operation", "name", "track"}:
+        op, title, track = (args.get(key, "") for key in ("operation", "name", "track"))
+        if (op in ("list", "create", "delete", "add", "remove", "play")
+                and isinstance(title, str) and len(title.encode()) <= 64 and (title.strip() or op == "list")
+                and isinstance(track, str) and len(track.encode()) < 1024 and (track.strip() or op not in ("add", "remove"))):
+            return "self.music.playlist", args
     if name == "play_file" and isinstance(args, dict) and set(args) == {"path"}:
         path = args["path"]
         if isinstance(path, str) and 0 < len(path.encode()) < 1024 and ("/" not in path or path.lower().endswith(".mp3")) and all(
@@ -78,6 +86,12 @@ def music_call(call):
             return "self.audio_speaker." + name, args
     if name == "enter_local_mode" and args == {}:
         return "self.voice.enter_local_mode", args
+    if name == "radio_status" and args == {}:
+        return "self.radio.status", args
+    if name == "disable_wifi" and args == {}:
+        return "self.radio.disable_wifi", args
+    if name == "set_bluetooth" and isinstance(args, dict) and set(args) == {"enabled"} and type(args["enabled"]) is bool:
+        return "self.radio.bluetooth", args
     if name == "open_setup" and args == {}:
         return "self.disp.network", args
     raise ValueError("invalid device command")
@@ -102,6 +116,7 @@ class Conversation:
         self.listening = False
         self.speaking = False
         self.turn = 0
+        self.pending_device_reply = None
         self.pending_control = None
         self.reset_input()
 
@@ -156,7 +171,18 @@ class Conversation:
         if not isinstance(message, dict):
             raise ValueError("expected control object")
         kind, state = message.get("type"), message.get("state")
-        if kind == "mcp" and self.pending_control is not None:
+        if kind == "mcp" and self.pending_device_reply is not None:
+            result = message.get("payload", {})
+            if result.get("id") == self.pending_device_reply:
+                self.pending_device_reply = None
+                content = result.get("result", {}).get("content", [])
+                text = content[0].get("text", "") if content else "设备操作失败"
+                text = text[:4096]
+                await self.send("tts", state="start")
+                await self.send("tts", state="sentence_start", text=text)
+                await self.provider.speak(text, self.settings, self.codec, self.socket)
+                await self.send("tts", state="stop")
+        elif kind == "mcp" and self.pending_control is not None:
             result = message.get("payload")
             if isinstance(result, dict) and result.get("id") == self.pending_control and ("result" in result or "error" in result):
                 self.pending_control = None
@@ -204,6 +230,8 @@ class Conversation:
             if calls:
                 name, arguments = music_call(calls[0])
                 self.turn += 1
+                if name in ("self.music.playlist", "self.radio.status", "self.radio.bluetooth"):
+                    self.pending_device_reply = self.turn
                 if name.startswith("self.audio_speaker.") or arguments.get("action") == "stop":
                     self.pending_control = self.turn
                 await self.send("mcp", payload={"jsonrpc": "2.0", "id": self.turn, "method": "tools/call",

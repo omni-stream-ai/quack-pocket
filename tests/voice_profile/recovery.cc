@@ -31,7 +31,24 @@ int nvs_commit(int) { return ++operations == failure ? ESP_FAIL : ESP_OK; }
 void nvs_close(int) {}
 
 int main() {
+    assert(!VoiceProfile::Load().Configured());
+    assert(VoiceProfile{}.Save("wifi-only", "password") && VoiceProfile::ApplyPendingWifi());
+    assert(!VoiceProfile::Load().Configured());
+    VoiceProfile official;
+    official.default_selected = true;
+    assert(official.Save() && VoiceProfile::Load().Configured());
+    assert(VoiceProfile{}.Save() && !VoiceProfile::Load().Configured());
     VoiceProfile profile{"wss://example.com", "device-token", "chat", "asr", "tts", "voice"};
+    spaces[0]["profile"] = R"({"url":"wss://example.com","token":"device-token","model":"chat","default_selected":true})";
+    assert(VoiceProfile::Load().Custom());
+    assert(profile.Save());
+    auto switched = VoiceProfile::Load();
+    switched.default_selected = true;
+    assert(switched.Save() && !VoiceProfile::Load().Custom() && VoiceProfile::Load().Configured());
+    switched = VoiceProfile::Load();
+    assert(switched.url == profile.url && switched.token == profile.token && switched.model == profile.model);
+    switched.default_selected = false;
+    assert(switched.Save() && VoiceProfile::Load().Custom());
     for (int interruption = 1; interruption <= 5; ++interruption) {
         spaces[0].clear();
         spaces[1] = {{"ssid", "previous"}, {"password", "previous-pass"}};

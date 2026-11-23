@@ -21,10 +21,12 @@
 #include <driver/spi_common.h>
 #include <wifi_station.h>
 #include <esp_wifi.h>
+#include <esp_netif_sntp.h>
 #include <ssid_manager.h>
 #include <font_awesome.h>
 #include "mcp_server.h"
 #include "music_player.h"
+#include "pocket_library.h"
 #include "pocket_checklist.h"
 #include "pocket_memo.h"
 #include "pocket_media.h"
@@ -49,6 +51,9 @@ private:
     CustomLcdDisplay *display_;
     board_power_bsp *power_;
 
+    std::mutex battery_mutex_;
+    int cached_battery_ = -1;
+    int64_t next_battery_sample_ = 0;
     adc_oneshot_unit_handle_t battery_adc_ = nullptr;
     adc_cali_handle_t battery_cali_ = nullptr;
     std::atomic<bool> low_battery_{false};
@@ -81,19 +86,19 @@ private:
         return true;
     }
     enum MenuItem { Play, Next, Sequential, Shuffle, VolumeDown, VolumeUp, Refresh, Story, Favorites,
-                    Chat, OfflineVoice, InstallModel, WakeSetting, RecordMemo, HearMemo,
-                    Phone, LanSetup, Bluetooth, Trusted, StandbyTimeout, Update, Help, Checklist, ItemCount };
+                    Chat, VoiceService, OfflineVoice, InstallModel, WakeSetting, RecordMemo, HearMemo,
+                    Phone, LanSetup, WifiToggle, Bluetooth, Trusted, StandbyTimeout, Update, AutoUpdate, Help, Checklist, ItemCount };
     struct MenuEntry { const char* title; const char* icon; };
     static constexpr MenuEntry items_[ItemCount] = {
         {"播放 / 暂停", FONT_AWESOME_MUSIC}, {"下一首", FONT_AWESOME_FORWARD_STEP},
         {"顺序播放", FONT_AWESOME_ARROWS_REPEAT}, {"随机播放", FONT_AWESOME_MUSIC},
         {"调小音量", FONT_AWESOME_VOLUME_LOW}, {"调大音量", FONT_AWESOME_VOLUME_HIGH},
         {"刷新曲库", FONT_AWESOME_ARROWS_ROTATE}, {"继续听故事", FONT_AWESOME_MUSIC}, {"我的收藏", FONT_AWESOME_MUSIC},
-        {"语音通话", FONT_AWESOME_COMMENT}, {"说一句音乐口令", FONT_AWESOME_MICROPHONE},
+        {"语音通话", FONT_AWESOME_COMMENT}, {"切换语音服务", FONT_AWESOME_COMMENT}, {"说一句音乐口令", FONT_AWESOME_MICROPHONE},
         {"安装离线模型", FONT_AWESOME_DOWNLOAD}, {"语音唤醒", FONT_AWESOME_MICROPHONE}, {"录一条留言", FONT_AWESOME_MICROPHONE}, {"听最近留言", FONT_AWESOME_COMMENT},
         {"手机配网与模型", FONT_AWESOME_WIFI}, {"同网扫码管理", FONT_AWESOME_WIFI},
-        {"蓝牙开关", FONT_AWESOME_GEAR}, {"已授权设备", FONT_AWESOME_GEAR}, {"自动待机时间", FONT_AWESOME_CLOCK},
-        {"检查更新", FONT_AWESOME_DOWNLOAD}, {"使用帮助", FONT_AWESOME_CIRCLE_QUESTION}, {"口袋清单", FONT_AWESOME_GEAR}
+        {"Wi-Fi 开关", FONT_AWESOME_WIFI}, {"蓝牙开关", FONT_AWESOME_GEAR}, {"已授权设备", FONT_AWESOME_GEAR}, {"自动待机时间", FONT_AWESOME_CLOCK},
+        {"检查更新", FONT_AWESOME_DOWNLOAD}, {"自动检查更新", FONT_AWESOME_GEAR}, {"使用帮助", FONT_AWESOME_CIRCLE_QUESTION}, {"口袋清单", FONT_AWESOME_GEAR}
     };
     struct MenuGroup { const char* title; const char* icon; const char* hint; MenuItem first, last; };
     static constexpr MenuGroup groups_[] = {
@@ -137,8 +142,23 @@ private:
             ESP_LOGW(TAG, "Battery measurement unavailable");
     }
 
+    void SetPowerSaveMode(bool enabled) override {
+        auto err = esp_wifi_set_ps(enabled ? WIFI_PS_MIN_MODEM : WIFI_PS_NONE);
+        if (err != ESP_OK && err != ESP_ERR_WIFI_NOT_INIT)
+            ESP_LOGW(TAG, "Wi-Fi power save: %s", esp_err_to_name(err));
+    }
+
     bool GetBatteryLevel(int& level, bool& charging, bool& discharging) override {
         if (!battery_adc_ || !battery_cali_) return false;
+        std::lock_guard<std::mutex> guard(battery_mutex_);
+        charging = discharging = false;
+        int64_t sample_time = esp_timer_get_time();
+        if (sample_time < next_battery_sample_) {
+            level = cached_battery_;
+            return level >= 0;
+        }
+        next_battery_sample_ = sample_time + 60000000;
+        cached_battery_ = -1;
         int total = 0;
         for (int i = 0; i < 8; ++i) {
             int raw, mv;
@@ -159,7 +179,7 @@ private:
         } else if (level >= 25) {
             low_battery_ = false;
         }
-        charging = discharging = false; // This ADC measures voltage, not current direction.
+        cached_battery_ = level;
         return true;
     }
 
@@ -183,10 +203,17 @@ private:
         std::string detail;
         if (item_ == VolumeDown || item_ == VolumeUp)
             detail = "当前音量 " + std::to_string(GetAudioCodec()->output_volume());
+        if (item_ == VoiceService) {
+            auto profile = VoiceProfile::Load();
+            detail = profile.url.empty() ? "请先在后台配置自建服务" :
+                profile.Custom() ? "当前自建 · 切换小智并重启" : "当前小智 · 切换自建并重启";
+        }
+        if (item_ == WifiToggle) detail = Settings("omni_ui").GetInt("wifi_on", 1) ? "确认关闭并重启" : "确认开启并重启";
         if (item_ == Bluetooth) detail = SetupBluetoothEnabled() ? "已开启，确认关闭" : "已关闭，确认开启";
-        if (item_ == WakeSetting) detail = wake_allowed_ ? "已开启，确认关闭" : "已关闭，确认开启";
+        if (item_ == WakeSetting) detail = Settings("omni_ui").GetInt("wake", 1) ? "已开启，确认关闭" : "已关闭，确认开启";
         if (item_ == StandbyTimeout) detail = standby::configured_minutes ?
-            std::to_string(standby::configured_minutes.load()) + (wake_allowed_ ? " 分钟 · 确认更改" : " 分钟 · 需开语音唤醒") : "关闭 · 确认更改";
+            std::to_string(standby::configured_minutes.load()) + (Settings("omni_ui").GetInt("wake", 1) ? " 分钟 · 确认更改" : " 分钟 · 需开语音唤醒") : "关闭 · 确认更改";
+        if (item_ == AutoUpdate) detail = pocket_update::AutomaticChecks() ? "已开启 · 确认键 关闭" : "已关闭 · 确认键 开启";
         if (item_ == Update) detail = std::string("当前版本 ") + esp_app_get_description()->version;
         display_->ShowMenu(header, items_[item_].icon, title, detail);
     }
@@ -197,8 +224,8 @@ private:
         bool background = BackgroundManagementEnabled();
         display_->ShowMenu("同网扫码管理", FONT_AWESOME_WIFI,
             lan_option_ == 0 ? "显示管理二维码" : "后台设置服务",
-            lan_option_ == 0 ? "BOOT 打开本次管理" : (background ? "已开启 · BOOT 关闭" : "已关闭 · BOOT 开启"),
-            "PWR 切换 · 长按 BOOT 返回");
+            lan_option_ == 0 ? "确认键 打开本次管理" : (background ? "已开启 · 确认键 关闭" : "已关闭 · 确认键 开启"),
+            "电源键 切换 · 长按确认键 返回");
     }
     bool LanButton(bool confirm) {
         if (lan_option_ < 0) return false;
@@ -247,7 +274,7 @@ private:
             if (!music_.Request(MusicAction::PlayFile,item->valuestring)) { display_->ShowNotification("播放器正忙"); return; }
             favorite_index_ = -1; menu_open_=false; display_->CloseMenu();
         } else display_->ShowUpdatePage("我的收藏 " + std::to_string(favorite_index_+1) + "/" +
-            std::to_string(count) + "\n\n" + item->valuestring + "\n\nBOOT 播放 · PWR 下一首\n长按 BOOT 返回");
+            std::to_string(count) + "\n\n" + item->valuestring + "\n\n确认键 播放 · 电源键 下一首\n长按确认键 返回");
     }
     int checklist_index_ = -1;
     void ChecklistPage(bool toggle, bool next) {
@@ -271,18 +298,18 @@ private:
         }
         display_->ShowUpdatePage("口袋清单 " + std::to_string(checklist_index_ + 1) +
             "/" + std::to_string(items.size()) + "\n\n" + (item.checked ? "已完成 " : "待完成 ") +
-            item.text + "\n\nBOOT 切换 · PWR 下一项\n长按 BOOT 返回");
+            item.text + "\n\n确认键 切换 · 电源键 下一项\n长按确认键 返回");
     }
     void ShowPeers() {
         if (peer_index_ == static_cast<int>(peers_.size())) {
             display_->ShowMenu("已授权设备", FONT_AWESOME_ARROW_LEFT, "返回",
-                peers_.empty() ? "尚未授权浏览器" : "BOOT 返回 · PWR 翻页", "PWR 短按翻页");
+                peers_.empty() ? "尚未授权浏览器" : "确认键 返回 · 电源键 翻页", "电源键 短按翻页");
             return;
         }
         const auto& peer = peers_[peer_index_];
-        std::string detail = peer.id.substr(0,8) + (confirm_remove_ ? " · BOOT 确认删除" : " · BOOT 删除");
-        display_->ShowMenu(confirm_remove_ ? "删除授权？PWR 取消" : "已授权设备 · PWR 翻页",
-                           FONT_AWESOME_GEAR,peer.name.c_str(),detail, confirm_remove_ ? "PWR 短按取消" : "PWR 短按翻页");
+        std::string detail = peer.id.substr(0,8) + (confirm_remove_ ? " · 确认键 确认删除" : " · 确认键 删除");
+        display_->ShowMenu(confirm_remove_ ? "删除授权？电源键 取消" : "已授权设备 · 电源键 翻页",
+                           FONT_AWESOME_GEAR,peer.name.c_str(),detail, confirm_remove_ ? "电源键 短按取消" : "电源键 短按翻页");
     }
     bool PeerButton(bool confirm) {
         if (peer_index_ < 0) return false;
@@ -319,7 +346,6 @@ private:
         }
     }
 
-    std::atomic<bool> wake_allowed_{true};
     std::mutex standby_mutex_;
     standby::Timer standby_timer_;
     wifi_ps_type_t previous_wifi_ps_ = WIFI_PS_MIN_MODEM;
@@ -330,7 +356,7 @@ private:
     pocket_update::Release release_;
 
     void UpdateResult(const std::string& message) {
-        display_->ShowUpdatePage("检查更新\n\n" + message + "\n\n按 BOOT 或 PWR 返回");
+        display_->ShowUpdatePage("检查更新\n\n" + message + "\n\n按确认键 或 电源键 返回");
         update_ = UpdateState::Result;
     }
 
@@ -355,7 +381,7 @@ private:
         std::string current = esp_app_get_description()->version;
         if (release_.version.empty()) { UpdateResult("已是最新版本 " + current); return; }
         display_->ShowUpdatePage("发现新版本\n\n当前 " + current + "\n新版 " + release_.version +
-                                 "\n\n短按 BOOT 安装\n短按 PWR 取消");
+                                 "\n\n短按确认键 安装\n短按电源键 取消");
         update_ = UpdateState::Confirm;
     }
 
@@ -390,7 +416,23 @@ private:
         }
         if (item_ == Favorites) { favorite_index_ = 0; FavoritePage(false,false); return; }
         if (item_ == Checklist) { checklist_index_ = 0; ChecklistPage(false, false); return; }
+        if (item_ == AutoUpdate) {
+            pocket_update::SetAutomaticChecks(!pocket_update::AutomaticChecks());
+            RenderMenu();
+            return;
+        }
         if (item_ == Update) { StartUpdate(false); return; }
+        if (item_ == VoiceService) {
+            if (VoiceProfile::Load().url.empty()) display_->ShowNotification("请先在后台配置自建服务");
+            else if (TogglePocketVoiceService()) esp_restart();
+            else display_->ShowNotification("切换失败，请重试");
+            return;
+        }
+        if (item_ == WifiToggle) {
+            bool enabled = Settings("omni_ui").GetInt("wifi_on", 1);
+            Settings("omni_ui", true).SetInt("wifi_on", !enabled);
+            esp_restart();
+        }
         if (item_ == Bluetooth) {
             bool enable=!SetupBluetoothEnabled();
             if (!SetSetupBluetoothEnabled(enable)) display_->ShowNotification("蓝牙切换失败，请重试");
@@ -407,16 +449,7 @@ private:
             return;
         }
         if (item_ == WakeSetting) {
-            wake_allowed_ = !wake_allowed_;
-            Settings("omni_ui", true).SetInt("wake", wake_allowed_);
-            auto& app = Application::GetInstance();
-            app.Schedule([allowed = wake_allowed_.load()]() {
-                auto& app = Application::GetInstance();
-                auto& audio = app.GetAudioService();
-                audio.SetWakeWordAllowed(allowed);
-                if (allowed && (app.GetDeviceState() == kDeviceStateIdle || app.GetDeviceState() == kDeviceStateWifiConfiguring)) audio.EnableWakeWordDetection(true);
-            });
-            display_->RefreshHome();
+            SetPocketWakeEnabled(!Settings("omni_ui").GetInt("wake", 1));
             RenderMenu();
             return;
         }
@@ -430,10 +463,6 @@ private:
         display_->CloseMenu();
         switch (item_) {
             case Chat: {
-                if (!WifiStation::GetInstance().IsConnected()) {
-                    display_->ShowVoiceHint("语音通话需要 Wi-Fi。可在菜单打开手机配网", 4500);
-                    break;
-                }
                 auto& app = Application::GetInstance();
                 app.SetVoicePaused(!app.IsVoicePaused());
                 break;
@@ -469,11 +498,12 @@ private:
     }
 #else
     void StartNetwork() override {
+        InitializeBackgroundManagement();
         InitializeSetupBluetooth(display_);
         int timeout = Settings("omni_ui").GetInt("standby_min", standby::default_minutes);
         standby::configured_minutes = standby::Valid(timeout) ? timeout : standby::default_minutes;
-        wake_allowed_ = Settings("omni_ui").GetInt("wake", 1);
-        Application::GetInstance().GetAudioService().SetWakeWordAllowed(wake_allowed_);
+        bool wake_allowed = Settings("omni_ui").GetInt("wake", 1);
+        Application::GetInstance().GetAudioService().SetWakeWordAllowed(wake_allowed);
         if (!Settings("omni_ui").GetInt("guided", 0)) {
             guide_waiter_ = xTaskGetCurrentTaskHandle();
             BeginGuide();
@@ -485,8 +515,10 @@ private:
             WaitForSetupButton("网络设置读写失败。");
             return;
         }
-        if (!wifi_config_mode_ && SsidManager::GetInstance().GetSsidList().empty()) {
-            EnableOfflineSetupScan();
+        if (wifi_config_mode_) Settings("omni_ui", true).SetInt("wifi_on", 1);
+        bool wifi_enabled = Settings("omni_ui").GetInt("wifi_on", 1);
+        if (!wifi_config_mode_ && (!wifi_enabled || SsidManager::GetInstance().GetSsidList().empty())) {
+            if (wifi_enabled) EnableOfflineSetupScan();
             Application::GetInstance().SetDeviceState(kDeviceStateWifiConfiguring);
             network_page_ = NetworkPage::Home;
             display_->ShowDisconnectedHome(false);
@@ -496,6 +528,8 @@ private:
             return;
         }
         WifiBoard::StartNetwork();
+        esp_sntp_config_t clock_config = ESP_NETIF_SNTP_DEFAULT_CONFIG("pool.ntp.org");
+        esp_netif_sntp_init(&clock_config);
         if (Settings("omni_mode").GetInt("lan_setup",0)) {
             { Settings mode("omni_mode",true); mode.SetInt("lan_setup",0); }
             Application::GetInstance().SetDeviceState(kDeviceStateWifiConfiguring);
@@ -529,12 +563,40 @@ private:
             auto page = network_page_.load();
             if (page != rendered) {
                 if (page == NetworkPage::Home) display_->ShowDisconnectedHome(true);
-                else display_->ShowNetworkPage("Wi-Fi 未连接\n\n正在寻找已保存的网络\n\n短按 BOOT 返回首页\n短按 PWR 进入手机配网");
+                else display_->ShowNetworkPage("Wi-Fi 未连接\n\n正在寻找已保存的网络\n\n短按确认键 返回首页\n短按电源键 进入手机配网");
                 rendered = page;
             }
         } while (!station.WaitForConnected(250));
         network_page_ = NetworkPage::Hidden;
         display_->ShowNetworkPage(nullptr);
+    }
+
+    // The Wi-Fi monitor schedules probes; only a manual check owns the update UI.
+    std::atomic<bool> checking_in_background_{false};
+    int64_t next_check_us_ = 0;
+    void ProbeUpdate() {
+        pocket_update::Release candidate;
+        if (pocket_update::AutomaticChecks() && pocket_update::Check(candidate).empty() &&
+            !candidate.version.empty() && pocket_update::AutomaticChecks() && !FirmwareUpdateActive()) {
+            display_->ShowNotification(("有新版本 " + candidate.version + "，可在设备设置中更新").c_str());
+        }
+    }
+    void MaybeCheckForUpdate() {
+        if (!pocket_update::AutomaticChecks()) {
+            next_check_us_ = 0;
+            return;
+        }
+        auto now = esp_timer_get_time();
+        if (now < next_check_us_ || FirmwareUpdateActive() || checking_in_background_.exchange(true)) return;
+        next_check_us_ = now + 24LL * 60 * 60 * 1000000;
+        auto probe = [](void* ctx) {
+            auto* self = static_cast<CustomBoard*>(ctx);
+            self->ProbeUpdate();
+            self->checking_in_background_ = false;
+            vTaskDelete(nullptr);
+        };
+        if (xTaskCreate(probe,"ota_probe",12288,this,2,nullptr)!=pdPASS)
+            checking_in_background_ = false;
     }
 
     void MonitorWifi() {
@@ -544,6 +606,8 @@ private:
                 if (!station.WaitForConnected(3000)) WaitForWifiRecovery();
                 StartBackgroundManagement(display_);
             }
+            FinishFirstManagement();
+            MaybeCheckForUpdate();
             vTaskDelay(pdMS_TO_TICKS(1500));
         }
     }
@@ -554,7 +618,7 @@ private:
         Application::GetInstance().SetDeviceState(kDeviceStateWifiConfiguring);
         setup_waiter_.store(xTaskGetCurrentTaskHandle());
         display_->SetStatus("联网失败");
-        const std::string hint = std::string("短按机身侧面 BOOT 键一次，进入配网。\n") + reason;
+        const std::string hint = std::string("短按机身侧面 确认键一次，进入配网。\n") + reason;
         display_->SetChatMessage("system", hint.c_str());
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
         setup_waiter_.store(nullptr);
@@ -680,6 +744,16 @@ private:
                 Application::GetInstance().SetVoicePaused(true);
                 return true;
             });
+        mcp_server.AddTool("self.music.playlist", "管理本地歌单。operation 为 list 查询、create 新建、delete 删除、add 加歌、remove 移除或 play 播放。name 为歌单名，track 为歌曲名或卡内路径。",
+            PropertyList({Property("operation", kPropertyTypeString), Property("name", kPropertyTypeString, std::string()),
+                          Property("track", kPropertyTypeString, std::string())}),
+            [](const PropertyList& props) -> ReturnValue {
+                auto operation = props["operation"].value<std::string>();
+                auto name = props["name"].value<std::string>();
+                auto result = pocket_library::Playlist(operation == "list" && name.empty() ? "names" : operation, name, props["track"].value<std::string>());
+                if (result.ok && operation == "play") Application::GetInstance().FinishChatForMusic();
+                return result.body;
+            });
         mcp_server.AddTool("self.music.play_file", "用户点播歌曲时优先调用此工具，按歌名查找并播放存储卡上的 MP3。path 填用户说的歌名（文件名可省略扩展名），或包含扩展名的完整相对路径。",
             PropertyList({ Property("path", kPropertyTypeString) }),
             [this](const PropertyList& properties) -> ReturnValue {
@@ -710,6 +784,27 @@ private:
                 codec->SetOutputVolume(volume);
                 display_->ShowNotification(("音量 " + std::to_string(volume)).c_str());
                 return volume;
+            });
+        mcp_server.AddTool("self.radio.status", "查询当前 Wi-Fi 和蓝牙连接状态", PropertyList(),
+            [](const PropertyList&) -> ReturnValue {
+                wifi_ap_record_t ap{};
+                std::string result = esp_wifi_sta_get_ap_info(&ap) == ESP_OK
+                    ? "Wi-Fi 已连接 " + std::string(reinterpret_cast<const char*>(ap.ssid), strnlen(reinterpret_cast<const char*>(ap.ssid), 32))
+                    : "Wi-Fi 未连接";
+                return result + "，蓝牙" + (SetupBluetoothConnected() ? "已连接" : SetupBluetoothEnabled() ? "已开启" : "已关闭");
+            });
+        mcp_server.AddTool("self.radio.disable_wifi", "用户明确要求关闭 Wi-Fi 时使用。设备将重启离线，在手机与网络菜单可重新开启。", PropertyList(),
+            [](const PropertyList&) -> ReturnValue {
+                Settings("omni_ui", true).SetInt("wifi_on", 0);
+                esp_restart();
+                return true;
+            });
+        mcp_server.AddTool("self.radio.bluetooth", "按用户要求开启或关闭设备蓝牙",
+            PropertyList({Property("enabled", kPropertyTypeBoolean)}),
+            [](const PropertyList& props) -> ReturnValue {
+                bool enabled = props["enabled"].value<bool>();
+                if (!SetSetupBluetoothEnabled(enabled)) return std::string("蓝牙切换失败");
+                return std::string(enabled ? "蓝牙已开启" : "蓝牙已关闭");
             });
         mcp_server.AddTool("self.disp.network", "重新配网", PropertyList(),
         [this](const PropertyList&) -> ReturnValue {
@@ -817,7 +912,7 @@ public:
         auto state = app.GetDeviceState();
         bool home = state == kDeviceStateIdle ||
             (state == kDeviceStateWifiConfiguring && network_page_ != NetworkPage::Hidden);
-        bool ready = !FirmwareUpdateActive() && home && guide_page_ < 0 && wake_allowed_ && audio.IsWakeWordRunning() &&
+        bool ready = !FirmwareUpdateActive() && home && guide_page_ < 0 && audio.WakeWordAllowed() && audio.IsWakeWordRunning() &&
             !audio.IsAudioProcessorRunning() && audio.IsIdle() && !music_.IsBusy();
         std::lock_guard<std::mutex> lock(standby_mutex_);
         auto now = NowMs();

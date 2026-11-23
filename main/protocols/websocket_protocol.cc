@@ -202,6 +202,7 @@ bool WebsocketProtocol::OpenAudioChannel() {
                 }
             }
         }
+        if (!profile.Custom()) reason = "小智 WebSocket 连接失败";
         SetError(reason);
         return false;
     }
@@ -216,7 +217,7 @@ bool WebsocketProtocol::OpenAudioChannel() {
     EventBits_t bits = xEventGroupWaitBits(event_group_handle_, WEBSOCKET_PROTOCOL_SERVER_HELLO_EVENT, pdTRUE, pdFALSE, pdMS_TO_TICKS(10000));
     if (!(bits & WEBSOCKET_PROTOCOL_SERVER_HELLO_EVENT)) {
         ESP_LOGE(TAG, "Failed to receive server hello");
-        SetError(profile.Custom() ? "自建网关握手超时，请检查网关服务" : Lang::Strings::SERVER_TIMEOUT);
+        SetError(profile.Custom() ? "自建网关握手超时，请检查网关服务" : "小智 WebSocket 握手超时");
         return false;
     }
 

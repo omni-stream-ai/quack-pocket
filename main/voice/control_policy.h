@@ -27,12 +27,17 @@ inline Json Load() {
         for (auto key : {"music","volume","state"}) cJSON_AddBoolToObject(policy.get(), key, true);
         cJSON_AddArrayToObject(policy.get(), "skills");
     }
+    if (!cJSON_GetObjectItemCaseSensitive(policy.get(), "network"))
+        cJSON_AddBoolToObject(policy.get(), "network", true);
     return policy;
 }
 
-inline bool Save(const cJSON* policy) {
+inline bool Save(cJSON* policy) {
     for (auto key : {"music","volume","state"})
         if (!cJSON_IsBool(cJSON_GetObjectItemCaseSensitive(policy, key))) return false;
+    auto network = cJSON_GetObjectItemCaseSensitive(policy, "network");
+    if (network && !cJSON_IsBool(network)) return false;
+    if (!network && !cJSON_AddBoolToObject(policy, "network", cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(Load().get(), "network")))) return false;
     auto skills = cJSON_GetObjectItemCaseSensitive(policy, "skills");
     if (!cJSON_IsArray(skills) || cJSON_GetArraySize(skills) > 24) return false;
     std::set<std::string> phrases;
@@ -65,9 +70,10 @@ inline bool Save(const cJSON* policy) {
 
 inline bool ToolEnabled(const std::string& tool) {
     const char* group = nullptr;
-    if (tool == "self.music.play_file" || tool == "self.music.control") group = "music";
+    if (tool == "self.music.playlist" || tool == "self.music.play_file" || tool == "self.music.control") group = "music";
     if (tool == "self.audio_speaker.set_volume" || tool == "self.audio_speaker.adjust_volume") group = "volume";
     if (tool == "self.voice.enter_local_mode") group = "state";
+    if (tool == "self.disp.network" || tool == "self.radio.disable_wifi" || tool == "self.radio.status" || tool == "self.radio.bluetooth") group = "network";
     return !group || cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(Load().get(), group));
 }
 }

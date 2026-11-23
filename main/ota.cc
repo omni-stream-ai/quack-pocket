@@ -54,6 +54,7 @@ std::unique_ptr<Http> Ota::SetupHttp() {
     auto network = board.GetNetwork();
     auto http = network->CreateHttp(0);
     auto user_agent = SystemInfo::GetUserAgent();
+    if (!http) return nullptr;
     http->SetHeader("Activation-Version", has_serial_number_ ? "2" : "1");
     http->SetHeader("Device-Id", SystemInfo::GetMacAddress().c_str());
     http->SetHeader("Client-Id", board.GetUuid());
@@ -71,7 +72,7 @@ std::unique_ptr<Http> Ota::SetupHttp() {
 /* 
  * Specification: https://ccnphfhqs21z.feishu.cn/wiki/FjW6wZmisimNBBkov6OcmfvknVd
  */
-bool Ota::CheckVersion() {
+bool Ota::CheckVersion(bool check_firmware) {
     auto& board = Board::GetInstance();
     auto app_desc = esp_app_get_description();
 
@@ -79,25 +80,31 @@ bool Ota::CheckVersion() {
     current_version_ = app_desc->version;
     ESP_LOGI(TAG, "Current version: %s", current_version_.c_str());
 
+    check_error_.clear();
+    has_mqtt_config_ = has_websocket_config_ = has_activation_code_ = has_activation_challenge_ = false;
     std::string url = GetCheckVersionUrl();
     if (url.length() < 10) {
+        check_error_ = "服务配置地址无效";
         ESP_LOGE(TAG, "Check version URL is not properly set");
         return false;
     }
 
     auto http = SetupHttp();
 
+    if (!http) { check_error_ = "无法创建服务配置连接"; return false; }
     std::string data = board.GetSystemInfoJson();
     std::string method = data.length() > 0 ? "POST" : "GET";
     http->SetContent(std::move(data));
 
     if (!http->Open(method, url)) {
+        check_error_ = "服务配置请求连接失败";
         ESP_LOGE(TAG, "Failed to open HTTP connection");
         return false;
     }
 
     auto status_code = http->GetStatusCode();
     if (status_code != 200) {
+        check_error_ = status_code > 0 ? "服务配置接口返回 HTTP " + std::to_string(status_code) : "未收到服务配置接口响应";
         ESP_LOGE(TAG, "Failed to check version, status code: %d", status_code);
         return false;
     }
@@ -110,7 +117,9 @@ bool Ota::CheckVersion() {
     // If it is, set has_new_version_ to true and store the new version and URL
     
     cJSON *root = cJSON_Parse(data.c_str());
-    if (root == NULL) {
+    if (!cJSON_IsObject(root)) {
+        cJSON_Delete(root);
+        check_error_ = "服务配置接口返回无效数据";
         ESP_LOGE(TAG, "Failed to parse JSON response");
         return false;
     }
@@ -155,7 +164,7 @@ bool Ota::CheckVersion() {
                 }
             }
         }
-        has_mqtt_config_ = true;
+        has_mqtt_config_ = !settings.GetString("endpoint").empty() && !settings.GetString("publish_topic").empty();
     } else {
         ESP_LOGI(TAG, "No mqtt section found !");
     }
@@ -176,7 +185,7 @@ bool Ota::CheckVersion() {
                 }
             }
         }
-        has_websocket_config_ = true;
+        has_websocket_config_ = !settings.GetString("url").empty();
     } else {
         ESP_LOGI(TAG, "No websocket section found!");
     }
@@ -194,7 +203,13 @@ bool Ota::CheckVersion() {
             
             // 如果有时区偏移，计算本地时间
             if (cJSON_IsNumber(timezone_offset)) {
-                ts += (timezone_offset->valueint * 60 * 1000); // 转换分钟为毫秒
+#if CONFIG_BOARD_TYPE_WAVESHARE_S3_ePaper_1_54
+                int offset = timezone_offset->valueint;
+                if (offset >= -720 && offset <= 840 && Settings("omni_ui").GetInt("utc_offset", 480) != offset)
+                    Settings("omni_ui", true).SetInt("utc_offset", offset);
+#else
+                ts += (timezone_offset->valueint * 60 * 1000);
+#endif // 转换分钟为毫秒
             }
             
             tv.tv_sec = (time_t)(ts / 1000);  // 转换毫秒为秒
@@ -207,6 +222,10 @@ bool Ota::CheckVersion() {
     }
 
     has_new_version_ = false;
+    if (!check_firmware) {
+        cJSON_Delete(root);
+        return true;
+    }
     cJSON *firmware = cJSON_GetObjectItem(root, "firmware");
     if (cJSON_IsObject(firmware)) {
         cJSON *version = cJSON_GetObjectItem(firmware, "version");
@@ -455,6 +474,7 @@ esp_err_t Ota::Activate() {
 
     auto http = SetupHttp();
 
+    if (!http) return ESP_ERR_NO_MEM;
     std::string data = GetActivationPayload();
     http->SetContent(std::move(data));
 

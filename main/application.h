@@ -95,7 +95,7 @@ private:
 
     void ReportVoiceFailure(const char* fallback);
     void OnWakeWordDetected(bool acknowledge = true);
-    void CheckNewVersion(Ota& ota);
+    void CheckNewVersion(Ota& ota, bool service_only = false);
     void CheckAssetsVersion();
     void ShowActivationCode(const std::string& code, const std::string& message);
     void SetListeningMode(ListeningMode mode);

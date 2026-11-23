@@ -125,7 +125,13 @@ void LvglDisplay::UpdateStatusBar(bool update_all) {
         if (last_status_update_time_ + std::chrono::seconds(10) < std::chrono::system_clock::now()) {
             // Set status to clock "HH:MM"
             time_t now = time(NULL);
+#if CONFIG_BOARD_TYPE_WAVESHARE_S3_ePaper_1_54
+            now += Settings("omni_ui").GetInt("utc_offset", 480) * 60;
+            struct tm local{};
+            struct tm* tm = gmtime_r(&now, &local);
+#else
             struct tm* tm = localtime(&now);
+#endif
             // Check if the we have already set the time
             if (tm->tm_year >= 2025 - 1900) {
                 char time_str[16];

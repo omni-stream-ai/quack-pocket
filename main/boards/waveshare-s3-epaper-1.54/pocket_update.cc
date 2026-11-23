@@ -2,6 +2,7 @@
 #include "settings.h"
 
 #include <algorithm>
+#include <mutex>
 #include <charconv>
 #include <cstring>
 #include <memory>
@@ -63,6 +64,23 @@ esp_http_client_config_t HttpConfig(const std::string& url) {
     cfg.disable_auto_redirect = true;
     return cfg;
 }
+}
+
+namespace {
+std::mutex preference_lock;
+bool& AutoPreference() {
+    static bool enabled = Settings("omni_ui").GetInt("auto_update",0) != 0;
+    return enabled;
+}
+}
+bool AutomaticChecks() {
+    std::lock_guard<std::mutex> guard(preference_lock);
+    return AutoPreference();
+}
+void SetAutomaticChecks(bool enabled) {
+    std::lock_guard<std::mutex> guard(preference_lock);
+    Settings("omni_ui",true).SetInt("auto_update",enabled);
+    AutoPreference() = enabled;
 }
 
 std::string Source() {

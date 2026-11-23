@@ -1,5 +1,7 @@
 #include "voice/control_policy.h"
 #include "phone_setup.h"
+#include "application.h"
+#include "board.h"
 #include "pocket_library.h"
 #include "setup_ble.h"
 #include "setup_access.h"
@@ -32,6 +34,31 @@
 #include "standby.h"
 #include "pocket_update.h"
 
+void SetPocketWakeEnabled(bool enabled) {
+    Settings("omni_ui", true).SetInt("wake", enabled);
+    Application::GetInstance().Schedule([]() {
+        auto& app = Application::GetInstance();
+        bool allowed = Settings("omni_ui").GetInt("wake", 1);
+        auto& audio = app.GetAudioService();
+        audio.SetWakeWordAllowed(allowed);
+        if (allowed && (app.GetDeviceState() == kDeviceStateIdle || app.GetDeviceState() == kDeviceStateWifiConfiguring))
+            audio.EnableWakeWordDetection(true);
+        static_cast<CustomLcdDisplay*>(Board::GetInstance().GetDisplay())->RefreshHome();
+    });
+}
+
+namespace {
+std::mutex profile_mutex;
+}
+bool TogglePocketVoiceService() {
+    std::lock_guard<std::mutex> guard(profile_mutex);
+    if (!VoiceProfile::ApplyPendingWifi()) return false;
+    auto profile = VoiceProfile::Load();
+    if (profile.url.empty()) return false;
+    profile.default_selected = profile.Custom();
+    return profile.Save();
+}
+
 namespace {
 std::atomic<bool> offline_home{false};
 std::atomic<TaskHandle_t> setup_task{nullptr};
@@ -55,27 +82,44 @@ esp_err_t Bad(httpd_req_t* req, const char* reason) {
     return Reply(req, "text/plain; charset=utf-8", reason);
 }
 
+// lan_background retains the original manual settings (0 and 1).
+enum LanMode { ManualOff, ManualOn, FirstConnection, FirstConnectionUsed };
+std::mutex policy_mutex;
+LanMode lan_mode = FirstConnection;
+httpd_handle_t first_server = nullptr;
+std::string first_browser;
+int64_t first_deadline = 0;
+constexpr int64_t presence_grace_us = 90000000;
+
+std::string BrowserKey(httpd_req_t* req) {
+    char key[33];
+    return httpd_req_get_hdr_value_str(req,"X-Pocket-Key",key,sizeof(key)) == ESP_OK ? key : "";
+}
+
 // Hold standby during requests, including slow SD operations. Between requests
 // a management page renews its presence every 20 seconds.
 std::mutex activity_mutex;
 unsigned active_requests = 0;
 int64_t awake_until_us = 0;
 class ManagementRequest {
+    httpd_handle_t server_;
 public:
-    ManagementRequest() {
+    explicit ManagementRequest(httpd_req_t* req) : server_(req->handle) {
         std::lock_guard<std::mutex> lock(activity_mutex);
         ++active_requests;
     }
     ~ManagementRequest() {
         std::lock_guard<std::mutex> lock(activity_mutex);
         --active_requests;
-        awake_until_us = esp_timer_get_time() + 90000000;
+        awake_until_us = esp_timer_get_time() + presence_grace_us;
+        std::lock_guard<std::mutex> policy(policy_mutex);
+        if (server_ == first_server && first_deadline) first_deadline = awake_until_us;
     }
 };
 
 esp_err_t Saver(httpd_req_t* req, CustomLcdDisplay::Saver slot) {
     if (!SetupRequestAllowed(req)) return ESP_OK;
-    ManagementRequest activity;
+    ManagementRequest activity(req);
     auto display = static_cast<CustomLcdDisplay*>(req->user_ctx);
     std::vector<uint8_t> pixels(CustomLcdDisplay::saver_bytes);
     if (req->method == HTTP_GET) {
@@ -101,7 +145,7 @@ esp_err_t Saver(httpd_req_t* req, CustomLcdDisplay::Saver slot) {
 
 esp_err_t Networks(httpd_req_t* req) {
     if (!SetupRequestAllowed(req)) return ESP_OK;
-    ManagementRequest activity;
+    ManagementRequest activity(req);
     // An unprovisioned device normally leaves the Wi-Fi radio off.
     struct TemporaryStation {
         bool initialized = false;
@@ -146,18 +190,22 @@ esp_err_t Networks(httpd_req_t* req) {
 
 esp_err_t Profile(httpd_req_t* req) {
     if (!SetupRequestAllowed(req)) return ESP_OK;
-    ManagementRequest activity;
+    ManagementRequest activity(req);
     auto profile = VoiceProfile::Load();
     Json object(cJSON_CreateObject(), cJSON_Delete);
     if (!object) return ESP_ERR_NO_MEM;
+    cJSON_AddBoolToObject(object.get(), "wake_enabled", Settings("omni_ui").GetInt("wake", 1));
     cJSON_AddBoolToObject(object.get(),"bluetooth_enabled",SetupBluetoothEnabled());
     if (!pocket_library::AddProfile(object.get())) return Bad(req, "读取媒体设置失败");
     cJSON_AddStringToObject(object.get(), "offline_words", ReadOfflineWords().c_str());
     int minutes = Settings("omni_ui").GetInt("standby_min", standby::default_minutes);
     cJSON_AddNumberToObject(object.get(), "standby_minutes", standby::Valid(minutes) ? minutes : standby::default_minutes);
+    cJSON_AddBoolToObject(object.get(),"auto_update",pocket_update::AutomaticChecks());
     cJSON_AddStringToObject(object.get(), "update_url", pocket_update::Source().c_str());
     cJSON_AddItemToObject(object.get(), "voice_controls", voice_control::Load().release());
     cJSON_AddTrueToObject(object.get(), "separate_model_settings");
+    cJSON_AddBoolToObject(object.get(), "voice_configured", profile.Configured());
+    cJSON_AddStringToObject(object.get(), "voice_mode", profile.Custom() ? "custom" : profile.default_selected ? "default" : "none");
     profile.AddModelSettings(object.get());
     cJSON_AddStringToObject(object.get(), "url", profile.url.c_str());
     cJSON_AddBoolToObject(object.get(), "has_token", !profile.token.empty());
@@ -168,12 +216,28 @@ esp_err_t Profile(httpd_req_t* req) {
     for (const auto& name : names) cJSON_AddItemToArray(list, cJSON_CreateString(name.c_str()));
     cJSON_AddBoolToObject(object.get(), "has_wifi", !names.empty());
     std::unique_ptr<char, decltype(&cJSON_free)> data(cJSON_PrintUnformatted(object.get()), cJSON_free);
-    return data ? Reply(req, "application/json", data.get()) : ESP_ERR_NO_MEM;
+    if (!data) return ESP_ERR_NO_MEM;
+    // ESP-IDF discards request headers after the response is sent.
+    auto browser = req->user_ctx ? BrowserKey(req) : std::string();
+    auto result = Reply(req, "application/json", data.get());
+    if (result == ESP_OK) {
+        std::lock_guard<std::mutex> guard(policy_mutex);
+        if (lan_mode == FirstConnection) {
+            Settings("omni_ui",true).SetInt("lan_background",FirstConnectionUsed);
+            lan_mode = FirstConnectionUsed;
+            if (req->user_ctx) {
+                first_server = req->handle;
+                first_browser = std::move(browser);
+                first_deadline = esp_timer_get_time() + presence_grace_us;
+            }
+        }
+    }
+    return result;
 }
 
 esp_err_t Save(httpd_req_t* req) {
     if (!SetupRequestAllowed(req)) return ESP_OK;
-    ManagementRequest activity;
+    ManagementRequest activity(req);
     char type[64];
     if (httpd_req_get_hdr_value_str(req, "Content-Type", type, sizeof(type)) != ESP_OK ||
         strcmp(type, "application/json") != 0 || !req->content_len || req->content_len > 25000) {
@@ -196,12 +260,24 @@ esp_err_t Save(httpd_req_t* req) {
         if (!result->ok) return Bad(req, result->body.c_str());
         return Reply(req, result->json ? "application/json" : "text/plain; charset=utf-8", result->body.c_str());
     }
+    if (get("action") == "auto_update") {
+        auto enabled = cJSON_GetObjectItemCaseSensitive(data.get(),"enabled");
+        if (!cJSON_IsBool(enabled)) return Bad(req,"请选择是否自动检查");
+        pocket_update::SetAutomaticChecks(cJSON_IsTrue(enabled));
+        return Reply(req,"text/plain; charset=utf-8","更新设置已保存");
+    }
     if (get("action") == "update_source") {
         if (!cJSON_IsString(cJSON_GetObjectItemCaseSensitive(data.get(), "url"))) return Bad(req, "缺少更新地址");
         auto url = get("url");
         if (!url.empty() && !pocket_update::ValidSource(url)) return Bad(req, "请填写 HTTPS 发布清单网址");
         Settings("omni_ui", true).SetString("update_url", url);
         return Reply(req, "text/plain; charset=utf-8", "更新地址已保存");
+    }
+    if (get("action") == "wake") {
+        auto value = cJSON_GetObjectItemCaseSensitive(data.get(), "enabled");
+        if (!cJSON_IsBool(value)) return Bad(req, "请选择语音唤醒状态");
+        SetPocketWakeEnabled(cJSON_IsTrue(value));
+        return Reply(req, "text/plain; charset=utf-8", "语音唤醒设置已保存");
     }
     if (get("action") == "bluetooth") {
         auto value=cJSON_GetObjectItemCaseSensitive(data.get(),"enabled");
@@ -230,14 +306,13 @@ esp_err_t Save(httpd_req_t* req) {
     }
     if (req->content_len > 3072) return Bad(req, "设置过长");
     // Hotspot, LAN and Bluetooth can dispatch writes from different server tasks.
-    static std::mutex profile_mutex;
     std::lock_guard<std::mutex> guard(profile_mutex);
     auto action = get("action");
     if (action == "save_llm" || action == "save_speech") {
         if (!VoiceProfile::ApplyPendingWifi())
             return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "请先完成已有网络配置");
         auto current = VoiceProfile::Load();
-        if (!current.Custom() || current.url != get("url")) return Bad(req, "请先保存自建网关连接");
+        if (current.url.empty() || current.url != get("url")) return Bad(req, "请先保存自建网关连接");
         auto field = [&](const char* key, std::string& target) {
             auto item = cJSON_GetObjectItemCaseSensitive(data.get(), key);
             if (!cJSON_IsString(item)) return false;
@@ -280,7 +355,11 @@ esp_err_t Save(httpd_req_t* req) {
         else if (current.url == profile.url) profile.protocol = current.protocol;
         if (profile.token.empty() && profile.url == current.url) profile.token = current.token;
         if (!profile.Custom() || !profile.Valid()) return Bad(req, "请检查 WSS 地址、令牌和模型名称");
-    } else if (mode != "default") return Bad(req, "请选择语音服务");
+    } else if (mode == "default") {
+        profile = VoiceProfile::Load();
+        profile.default_selected = true;
+    }
+    else if (mode != "none") return Bad(req, "请选择语音服务");
     if (!profile.Save(ssid, password) || !VoiceProfile::ApplyPendingWifi()) return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "保存失败");
     auto result = Reply(req, "text/plain; charset=utf-8", "已保存，设备正在重启。");
     if(req->user_ctx) xTaskNotify(static_cast<TaskHandle_t>(req->user_ctx), settings_saved, eSetBits);
@@ -299,7 +378,7 @@ esp_err_t RegisterSetupRoutes(httpd_handle_t server, CustomLcdDisplay* display, 
         presence.method = HTTP_GET;
         presence.handler = [](httpd_req_t* req) {
             if (!SetupRequestAllowed(req)) return ESP_OK;
-            ManagementRequest activity;
+            ManagementRequest activity(req);
             httpd_resp_set_status(req,"204 No Content");
             return Reply(req,"text/plain","");
         };
@@ -307,6 +386,7 @@ esp_err_t RegisterSetupRoutes(httpd_handle_t server, CustomLcdDisplay* display, 
     }
     httpd_uri_t access{};
     access.uri = "/access"; access.method = HTTP_POST; access.handler = [](httpd_req_t* req) {
+        if (!FirstManagementRequestAllowed(req)) return ESP_OK;
         auto result=RequestSetupAccess(req);
         if(auto task=prompt_task.load()) xTaskNotifyGive(task);
         return result;
@@ -330,12 +410,16 @@ esp_err_t RegisterSetupRoutes(httpd_handle_t server, CustomLcdDisplay* display, 
     leave.uri = "/exit"; leave.method = HTTP_POST; leave.user_ctx = owner;
     leave.handler = [](httpd_req_t* req) {
         if (!SetupRequestAllowed(req)) return ESP_OK;
-        ManagementRequest activity;
+        ManagementRequest activity(req);
         char type[32];
         if (httpd_req_get_hdr_value_str(req, "Content-Type", type, sizeof(type)) != ESP_OK ||
             strcmp(type, "application/json")) return Bad(req, "退出请求格式不正确");
         auto result = Reply(req, "text/plain; charset=utf-8", "已退出设置，正在返回首页");
         if (req->user_ctx) xTaskNotify(static_cast<TaskHandle_t>(req->user_ctx), leave_setup, eSetBits);
+        else if (result == ESP_OK) {
+            std::lock_guard<std::mutex> guard(policy_mutex);
+            if (req->handle == first_server) first_deadline = 0;
+        }
         return result;
     };
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(server, &leave),"setup","register route");
@@ -345,7 +429,6 @@ esp_err_t RegisterSetupRoutes(httpd_handle_t server, CustomLcdDisplay* display, 
     home.user_ctx = lan ? display : nullptr;
     home.handler = [](httpd_req_t* req) {
         if (!req->user_ctx) return Reply(req,"text/html; charset=utf-8",page);
-        ManagementRequest activity;
         const char* head = strstr(page,"<head>") + 6;
         httpd_resp_set_type(req,"text/html; charset=utf-8");
         httpd_resp_set_hdr(req,"Cache-Control","no-store");
@@ -360,6 +443,7 @@ esp_err_t RegisterSetupRoutes(httpd_handle_t server, CustomLcdDisplay* display, 
     };
     read.uri = "/profile"; read.method = HTTP_GET; read.handler = Profile;
     write.uri = "/profile"; write.method = HTTP_POST; write.handler = Save;
+    read.user_ctx = lan && !owner ? display : nullptr;
     write.user_ctx = owner;
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(server, &home),"setup","register route");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(server, &read),"setup","register route");
@@ -420,7 +504,7 @@ void InitializeBluetoothPrompts(CustomLcdDisplay* display) {
                 auto prompt=PendingSetupPrompt();
                 if(!prompt.id.empty()){
                     ticket=prompt.id+prompt.code;
-                    message="允许管理设备？\n"+prompt.name+"\n核对码 "+prompt.code+"\nBOOT 同意 · PWR 拒绝";
+                    message="允许管理设备？\n"+prompt.name+"\n核对码 "+prompt.code+"\n确认键 同意 · 电源键 拒绝";
                 }
             }
             if(message!=rendered){
@@ -483,8 +567,27 @@ bool ManagementInUse() {
     return active_requests || esp_timer_get_time() < awake_until_us;
 }
 
+bool FirstManagementRequestAllowed(httpd_req_t* req) {
+    std::lock_guard<std::mutex> guard(policy_mutex);
+    if (req->handle != first_server ||
+        (first_deadline && esp_timer_get_time() < first_deadline && BrowserKey(req) == first_browser)) return true;
+    httpd_resp_send_err(req,HTTPD_403_FORBIDDEN,"首次管理已结束，请在设备上开启后台设置服务");
+    return false;
+}
+
+void InitializeBackgroundManagement() {
+    std::lock_guard<std::mutex> guard(policy_mutex);
+    Settings settings("omni_ui",true);
+    int saved = settings.GetInt("lan_background",-1);
+    if (saved < 0) {
+        lan_mode = SetupPeers().empty() ? FirstConnection : FirstConnectionUsed;
+        settings.SetInt("lan_background",lan_mode);
+    } else lan_mode = static_cast<LanMode>(saved);
+}
+
 bool BackgroundManagementEnabled() {
-    return Settings("omni_ui").GetInt("lan_background",1) != 0;
+    std::lock_guard<std::mutex> guard(policy_mutex);
+    return lan_mode == ManualOn || lan_mode == FirstConnection;
 }
 
 namespace {
@@ -499,6 +602,11 @@ bool ConfigureLanService(CustomLcdDisplay* display, bool enable) {
     } else if (!enable && background_server) {
         if (httpd_ssl_stop(background_server)!=ESP_OK) return false;
         background_server = nullptr;
+        {
+            std::lock_guard<std::mutex> policy(policy_mutex);
+            first_server = nullptr;
+            first_browser.clear();
+        }
         mdns_service_remove("_https","_tcp");
     }
     return true;
@@ -507,8 +615,25 @@ bool ConfigureLanService(CustomLcdDisplay* display, bool enable) {
 bool ApplyBackgroundManagement(CustomLcdDisplay* display, bool enable) {
     std::lock_guard<std::mutex> lock(lan_mutex);
     if (!ConfigureLanService(display,enable)) return false;
-    Settings("omni_ui",true).SetInt("lan_background",enable);
+    std::lock_guard<std::mutex> policy(policy_mutex);
+    lan_mode = enable ? ManualOn : ManualOff;
+    first_server = nullptr;
+    first_browser.clear();
+    Settings("omni_ui",true).SetInt("lan_background",lan_mode);
     return true;
+}
+void FinishFirstManagement() {
+    std::lock_guard<std::mutex> lock(lan_mutex);
+    if (!background_server) return;
+    {
+        std::lock_guard<std::mutex> policy(policy_mutex);
+        if (lan_mode != FirstConnectionUsed || (first_server && esp_timer_get_time() < first_deadline)) return;
+    }
+    {
+        std::lock_guard<std::mutex> activity(activity_mutex);
+        if (active_requests) return;
+    }
+    ConfigureLanService(nullptr,false);
 }
 void StartBackgroundManagement(CustomLcdDisplay* display) {
     std::lock_guard<std::mutex> lock(lan_mutex);
@@ -570,7 +695,7 @@ void RunPhoneSetup(CustomLcdDisplay* display, bool lan) {
             { std::lock_guard<std::mutex> guard(prompt_mutex); shown_ticket.clear(); }
             if (!ticket.empty()) {
                 std::string message = "允许管理设备？\n" + prompt.name + "\n核对码 " + prompt.code +
-                                      "\nBOOT 同意 · PWR 拒绝";
+                                      "\n确认键 同意 · 电源键 拒绝";
                 display->SetChatMessage("system","");
                 display->ShowNetworkPage(message.c_str());
             } else {

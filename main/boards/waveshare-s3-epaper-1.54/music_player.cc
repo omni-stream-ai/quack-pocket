@@ -54,7 +54,7 @@ bool MusicPlayer::Start(std::function<void()> power_off) {
         return false;
     }
     if (xTaskCreate([](void *arg) { static_cast<MusicPlayer*>(arg)->Run(); },
-                    "sd_player", 32768, this, 3, nullptr) != pdPASS) {
+                    "sd_player", 24 * 1024, this, 3, nullptr) != pdPASS) {
         vQueueDelete(commands_);
         commands_ = nullptr;
         return false;
@@ -88,6 +88,7 @@ void MusicPlayer::Run() {
     MusicResampler resampler;
     int input_rate = 0;
     uint32_t track = 0;
+    std::vector<uint32_t> playlist;
     bool shuffle = false;
     bool playing = false;
     bool announce = true;
@@ -122,6 +123,7 @@ void MusicPlayer::Run() {
     };
     auto release = [&]() {
         close_track();
+        playlist.clear();
         music_index_close(&index);
         music_sd_unmount();
         playing = false;
@@ -167,7 +169,7 @@ void MusicPlayer::Run() {
                 auto interrupted = [this] { return powering_off_.load() || uxQueueMessagesWaiting(commands_); };
                 if (command.action == MusicAction::RecordMemo) {
                     recording_ = true;
-                    Show("正在录留言，按 BOOT 保存", (pocket_media::Config().record_seconds + 1) * 1000);
+                    Show("正在录留言，按确认键 保存", (pocket_media::Config().record_seconds + 1) * 1000);
                     Show(RecordPocketMemo([&] { return !recording_ || interrupted(); }));
                     recording_ = false;
                 } else Show(PlayPocketMemo(interrupted));
@@ -271,7 +273,7 @@ void MusicPlayer::Run() {
                 }
                 if (!index.count) {
                     release();
-                    Show("存储卡里没有 MP3，加歌后请三击 BOOT");
+                    Show("存储卡里没有 MP3，加歌后请三击 确认键");
                     continue;
                 }
             }
@@ -281,7 +283,7 @@ void MusicPlayer::Run() {
             }
             pocket_media::Config config;
             bool start_story = command.action == MusicAction::Story;
-            bool use_story = start_story || (story && command.action != MusicAction::PlayFile &&
+            bool use_story = start_story || (story && command.action != MusicAction::Playlist && command.action != MusicAction::PlayFile &&
                 command.action != MusicAction::Shuffle && command.action != MusicAction::Sequential);
             uint32_t low, high;
             if (!music_index_directory(&index, (use_story ? config.stories : config.music).c_str(), &low, &high)
@@ -317,6 +319,34 @@ void MusicPlayer::Run() {
                 high = std::min(high,book_end);
                 if (low >= high) { Show("故事目录已更改，请重新选择故事"); continue; }
             }
+            if (command.action == MusicAction::Playlist) {
+                auto lists = pocket_media::Load("playlists");
+                auto* songs = cJSON_GetObjectItemCaseSensitive(lists.get(),command.path);
+                std::vector<uint32_t> selected;
+                cJSON* song;
+                cJSON_ArrayForEach(song,songs) {
+                    uint32_t id;
+                    if (!cJSON_IsString(song)) continue;
+                    if (!music_index_find(&index,song->valuestring,&id) || id < low || id >= high) {
+                        if (strchr(song->valuestring,'/') || music_index_find_title_in(&index,song->valuestring,
+                                &id,low,high,[](void* ctx) {
+                                    auto* player = static_cast<MusicPlayer*>(ctx);
+                                    vTaskDelay(1);
+                                    return !player->powering_off_ && !uxQueueMessagesWaiting(player->commands_);
+                                },this) != MUSIC_TITLE_FOUND) continue;
+                    }
+                    selected.push_back(id);
+                }
+                if (selected.empty()) { Show("播放列表中没有找到可播放的歌曲"); continue; }
+                checkpoint(); close_track();
+                playlist = std::move(selected);
+                track = 0; shuffle = false;
+            } else if (!playlist.empty() && (start_story || command.action == MusicAction::PlayFile ||
+                       command.action == MusicAction::Sequential || command.action == MusicAction::Shuffle)) {
+                track = playlist[track];
+                playlist.clear();
+            }
+            if (!playlist.empty()) { low = 0; high = playlist.size(); }
             if (start_story || story != use_story || track < low || track >= high) {
                 checkpoint(); close_track();
             }
@@ -384,7 +414,7 @@ void MusicPlayer::Run() {
             continue;
         }
         if (!decoder) {
-            if (!music_index_get(&index, track, path)) {
+            if (!music_index_get(&index, playlist.empty() ? track : playlist[track], path)) {
                 release();
                 ESP_LOGW("music_sd", "Index record read failed");
                 Show("音乐索引损坏，请重新生成");
@@ -449,7 +479,7 @@ void MusicPlayer::Run() {
         }
 #ifdef OMNI_MUSIC_HIL
         else {
-            music_hil::Queued(track, shuffle);
+            music_hil::Queued(playlist.empty() ? track : playlist[track], shuffle);
         }
 #endif
     }

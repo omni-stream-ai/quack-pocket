@@ -6,7 +6,9 @@
 struct VoiceProfile {
     std::string url, token, model, asr, tts, voice;
     std::string protocol = "chat_completions";
-    bool Custom() const { return !url.empty(); }
+    bool default_selected = false;
+    bool Configured() const { return Custom() || default_selected; }
+    bool Custom() const { return !default_selected && !url.empty(); }
     bool Valid() const;
     bool Save(const std::string& ssid = {}, const std::string& password = {}) const;
     static bool ApplyPendingWifi();

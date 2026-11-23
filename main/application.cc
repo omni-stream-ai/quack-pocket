@@ -121,18 +121,25 @@ void Application::CheckAssetsVersion() {
     display->SetEmotion("microchip_ai");
 }
 
-void Application::CheckNewVersion(Ota& ota) {
+void Application::CheckNewVersion(Ota& ota, bool service_only) {
     const int MAX_RETRY = 10;
+    std::string displayed_code;
     int retry_count = 0;
     int retry_delay = 10; // 初始重试延迟为10秒
 
     auto& board = Board::GetInstance();
+    auto activation_cancelled = [&] {
+        return service_only && (voice_paused_ || device_state_ == kDeviceStateIdle);
+    };
     while (true) {
         SetDeviceState(kDeviceStateActivating);
         auto display = board.GetDisplay();
-        display->SetStatus(Lang::Strings::CHECKING_NEW_VERSION);
+        display->SetStatus(service_only ? Lang::Strings::LOADING_PROTOCOL : Lang::Strings::CHECKING_NEW_VERSION);
 
-        if (!ota.CheckVersion()) {
+        bool fetched = ota.CheckVersion(!service_only);
+        if (activation_cancelled()) return;
+        if (!fetched) {
+            if (service_only) return;  // Voice initialization may use cached connection settings.
             retry_count++;
             if (retry_count >= MAX_RETRY) {
                 ESP_LOGE(TAG, "Too many retries, exit version check");
@@ -177,22 +184,33 @@ void Application::CheckNewVersion(Ota& ota) {
 
         display->SetStatus(Lang::Strings::ACTIVATION);
         // Activation code is shown to the user and waiting for the user to input
-        if (ota.HasActivationCode()) {
+        if (ota.HasActivationCode() && ota.GetActivationCode() != displayed_code) {
+            displayed_code = ota.GetActivationCode();
             ShowActivationCode(ota.GetActivationCode(), ota.GetActivationMessage());
         }
 
-        // This will block the loop until the activation is done or timeout
+        auto wait_for_poll = [&](int milliseconds) {
+            for (int elapsed = 0; elapsed < milliseconds; elapsed += 100) {
+                if (activation_cancelled()) return false;
+                vTaskDelay(pdMS_TO_TICKS(100));
+            }
+            return !activation_cancelled();
+        };
+        if (!ota.HasActivationChallenge()) {
+            if (!wait_for_poll(3000)) return;
+            continue;
+        }
+        // Poll the activation endpoint only when the service supplied a challenge.
         for (int i = 0; i < 10; ++i) {
             ESP_LOGI(TAG, "Activating... %d/%d", i + 1, 10);
+            if (activation_cancelled()) return;
             esp_err_t err = ota.Activate();
+            if (activation_cancelled()) return;
             if (err == ESP_OK) {
                 xEventGroupSetBits(event_group_, MAIN_EVENT_CHECK_NEW_VERSION_DONE);
                 break;
-            } else if (err == ESP_ERR_TIMEOUT) {
-                vTaskDelay(pdMS_TO_TICKS(3000));
-            } else {
-                vTaskDelay(pdMS_TO_TICKS(10000));
             }
+            if (!wait_for_poll(err == ESP_ERR_TIMEOUT ? 3000 : 10000)) return;
             if (device_state_ == kDeviceStateIdle) {
                 break;
             }
@@ -263,10 +281,25 @@ void Application::FinishChatForMusic() {
 
 void Application::SetVoicePaused(bool paused) {
     Schedule([this, paused]() {
+#if CONFIG_BOARD_TYPE_WAVESHARE_S3_ePaper_1_54
+        if (!paused && !VoiceProfile::Load().Configured()) {
+            Board::GetInstance().GetDisplay()->ShowVoiceHint("请先在手机设置 → 服务连接选择语音服务并保存", 8000);
+            return;
+        }
+        if (!paused && !waiting_for_voice_entry_ && device_state_ == kDeviceStateStarting && Board::GetInstance().CanStartVoiceShortcut()) {
+            Board::GetInstance().GetDisplay()->ShowVoiceHint("语音服务正在准备，请稍后再试", 4000);
+            return;
+        }
+        if (!paused && !Board::GetInstance().CanStartVoiceShortcut()) {
+            Board::GetInstance().GetDisplay()->ShowVoiceHint("语音通话需要 Wi-Fi，请先联网", 5000);
+            return;
+        }
+#endif
         if (voice_paused_.exchange(paused) == paused) return;
         Board::GetInstance().GetDisplay()->ShowHome(paused);
         if (!paused) {
             if (waiting_for_voice_entry_.exchange(false)) {
+                shortcut_conversation_ = true;
                 xEventGroupSetBits(event_group_, MAIN_EVENT_ENTER_VOICE);
                 return;
             }
@@ -287,7 +320,7 @@ void Application::SetVoicePaused(bool paused) {
         if (protocol_) SetDeviceState(kDeviceStateIdle);
         auto display = Board::GetInstance().GetDisplay();
         display->SetStatus("首页");
-        display->SetChatMessage("system", "PWR 播放或暂停音乐\n短按 BOOT 进入语音通话");
+        display->SetChatMessage("system", "电源键 播放或暂停音乐\n短按 确认键 进入语音通话");
     });
 }
 
@@ -435,29 +468,58 @@ void Application::Start() {
     bool deferred_assets = !Settings("assets").GetString("download_url").empty();
     if (!deferred_assets) CheckAssetsVersion();
     Ota().MarkCurrentVersionValid(); // Local startup succeeded, including on devices without saved Wi-Fi.
+#if CONFIG_BOARD_TYPE_WAVESHARE_S3_ePaper_1_54
+    voice_paused_ = true;
+#endif
     board.StartNetwork();
 
     // Update the status bar immediately to show the network state
     display->UpdateStatusBar(true);
 
     if (deferred_assets) CheckAssetsVersion();
+    Ota ota;
 #if CONFIG_BOARD_TYPE_WAVESHARE_S3_ePaper_1_54
     waiting_for_voice_entry_ = true;
-    voice_paused_ = true;
     SetDeviceState(kDeviceStateIdle);
     display->ShowHome(true);
-    xEventGroupWaitBits(event_group_, MAIN_EVENT_ENTER_VOICE, pdTRUE, pdFALSE, portMAX_DELAY);
+    auto profile = VoiceProfile::Load();
+    // Only fetch service settings in the startup task. Activation and microphone
+    // streaming require an explicit call, even if the service returns a code.
+    bool prepared = profile.default_selected && !profile.Custom() && board.CanStartVoiceShortcut()
+                    && ota.CheckVersion(false) && !ota.HasActivationCode() && !ota.HasActivationChallenge()
+                    && (ota.HasMqttConfig() || ota.HasWebsocketConfig());
+    for (;;) {
+        xEventGroupWaitBits(event_group_, MAIN_EVENT_ENTER_VOICE, pdTRUE, pdFALSE, portMAX_DELAY);
+        if (profile.Custom() || prepared) break;
+        CheckNewVersion(ota, true);
+        if (voice_paused_ || device_state_ == kDeviceStateIdle) {
+            voice_paused_ = true;
+            shortcut_conversation_ = false;
+            waiting_for_voice_entry_ = true;
+            SetDeviceState(kDeviceStateIdle);
+            display->ShowHome(true);
+            continue;
+        }
+        if (ota.HasMqttConfig() || ota.HasWebsocketConfig() ||
+            (!ota.CheckError().empty() && (!Settings("mqtt").GetString("endpoint").empty() ||
+                                           !Settings("websocket").GetString("url").empty()))) break;
+        // Rearm the entry gate before reporting failure so the next call can provision again.
+        waiting_for_voice_entry_ = true;
+        ReportVoiceFailure(ota.CheckError().empty() ? "服务未返回语音连接配置，请检查小智控制台绑定" :
+                                                    ota.CheckError().c_str());
+    }
     SetDeviceState(kDeviceStateStarting);
 #endif
 
 
     // Check for new firmware version or get the MQTT broker address
-    Ota ota;
     const bool custom_voice = VoiceProfile::Load().Custom();
     if (custom_voice) {
         ota.MarkCurrentVersionValid();
     } else {
+#if !CONFIG_BOARD_TYPE_WAVESHARE_S3_ePaper_1_54
         CheckNewVersion(ota);
+#endif
     }
 
     // Initialize the protocol
@@ -472,7 +534,11 @@ void Application::Start() {
         protocol_ = std::make_unique<WebsocketProtocol>();
     } else if (ota.HasMqttConfig()) {
         protocol_ = std::make_unique<MqttProtocol>();
-    } else if (ota.HasWebsocketConfig()) {
+    } else if (ota.HasWebsocketConfig()
+#if CONFIG_BOARD_TYPE_WAVESHARE_S3_ePaper_1_54
+               || (Settings("mqtt").GetString("endpoint").empty() && !Settings("websocket").GetString("url").empty())
+#endif
+    ) {
         protocol_ = std::make_unique<WebsocketProtocol>();
     } else {
         ESP_LOGW(TAG, "No protocol specified in the OTA config, using MQTT");
@@ -606,7 +672,12 @@ void Application::Start() {
             ESP_LOGW(TAG, "Unknown message type: %s", type->valuestring);
         }
     });
+#if CONFIG_BOARD_TYPE_WAVESHARE_S3_ePaper_1_54
+    // OpenAudioChannel connects the transport once and reports its specific error.
+    bool protocol_started = true;
+#else
     bool protocol_started = protocol_->Start();
+#endif
 
     SystemInfo::PrintHeapStats();
     SetDeviceState(kDeviceStateIdle);
@@ -615,12 +686,9 @@ void Application::Start() {
     if (shortcut_conversation_) {
         Schedule([this, protocol_started]() {
             if (!shortcut_conversation_) return;
-            if (protocol_started && !voice_paused_) {
+            if (!voice_paused_ && protocol_started) {
                 OnWakeWordDetected(false);
-            }
-            else if (!voice_paused_) {
-                ReportVoiceFailure("语音服务初始化失败，请检查服务设置");
-            }
+            } else if (!voice_paused_) ReportVoiceFailure("语音服务初始化失败，请检查服务设置");
         });
     } else if (protocol_started) {
         std::string message = std::string(Lang::Strings::VERSION) + ota.GetCurrentVersion();
@@ -743,6 +811,11 @@ void Application::OnWakeWordDetected(bool acknowledge) {
         return;
     }
     if (acknowledge && (voice_paused_ || device_state_ == kDeviceStateIdle)) {
+        if (!VoiceProfile::Load().Configured()) {
+            board.GetDisplay()->ShowVoiceHint("请先在手机设置 → 服务连接选择语音服务并保存", 8000);
+            audio_service_.EnableWakeWordDetection(true);
+            return;
+        }
         extern const char wake_ack_start[] asm("_binary_wake_ack_ogg_start");
         extern const char wake_ack_end[] asm("_binary_wake_ack_ogg_end");
         audio_service_.PlaySound(std::string_view(wake_ack_start, wake_ack_end - wake_ack_start));

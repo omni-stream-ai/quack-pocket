@@ -11,6 +11,8 @@ struct Release {
     int bytes = 0;
     std::array<uint8_t, 32> digest{};
 };
+bool AutomaticChecks();
+void SetAutomaticChecks(bool enabled);
 std::string Source();
 bool ValidSource(const std::string& url);
 // Empty error means a verified manifest. An empty release means already current.

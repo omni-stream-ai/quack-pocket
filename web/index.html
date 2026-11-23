@@ -25,6 +25,10 @@ button{background:var(--accent);border:0;border-radius:.6rem;cursor:pointer;marg
 #phrases{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 .8rem}
 .brand{display:flex;align-items:center;gap:1rem}.brand img{width:clamp(4rem,12vw,6rem);height:auto}.brand h1{margin:0}.brand p{color:#45615a}
 #install{width:auto;background:#fff;color:var(--accent);border:1px solid var(--line)}
+input[type=checkbox]{display:inline-block;width:1.2rem;height:1.2rem;margin:0 .75rem 0 0;vertical-align:middle;accent-color:var(--accent)}
+#controls label:has(input[type=checkbox]){padding:.65rem .8rem;background:#eef4ef;border-radius:.5rem}
+nav a:hover,nav a:focus-visible{background:#d9eae0}fieldset{scroll-margin-top:1rem}
+@media(min-width:54rem){body{max-width:76rem}#settings{display:grid;grid-template-columns:12rem minmax(0,1fr);column-gap:2rem}#settings[hidden]{display:none}#settings>nav{grid-column:1;grid-row:1/span 24;align-self:start;position:sticky;top:1rem;display:grid}#settings>:not(nav){grid-column:2}}
 </style></head><body>
 <header><div class="brand"><img id="brandIcon" width="80" height="80" alt=""><div><h1>嘎嘎口袋</h1><p>设备设置 · 网络、语音与墨水屏</p></div></div><p id="connection" role="status">准备连接设备…</p><button id="install" hidden>安装嘎嘎口袋</button></header>
 <section class="guide" id="guide" hidden><h2>连接附近的设备</h2><p>打开手机蓝牙，点「选择蓝牙设备」，选择附近的 Omni 设备。若列表为空，请检查鸭子「手机与网络 → 蓝牙开关」是否开启。</p>
@@ -34,7 +38,7 @@ button{background:var(--accent);border:0;border-radius:.6rem;cursor:pointer;marg
 <section class="guide" id="authorization" hidden><h2>授权此浏览器</h2>
 <label>在鸭子上显示的名称<input id="browserName" maxlength="16" placeholder="例如：妈妈的手机"></label>
 <button id="requestAccess">请求连接</button><p id="authStatus" role="status"></p></section>
-<form id="settings" hidden><nav aria-label="设置项目"><a href="#wifi">无线网络</a><a href="#service">语音服务</a><a href="#words">离线口令</a><a href="#screen">屏保</a></nav>
+<form id="settings" hidden><nav aria-label="设置项目"><a href="#wifi">无线网络</a><a href="#service">语音服务</a><a href="#controls">设备功能与技能</a><a href="#sdBrowser">SD 卡文件管理</a><a href="#playlistPanel">播放列表</a><a href="#bluetoothSettings">设备蓝牙</a><a href="#words">离线口令</a><a href="#screen">屏保</a></nav>
 <fieldset id="wifi"><legend>无线网络</legend>
 <details id="picker" open><summary>附近的 2.4 GHz Wi-Fi</summary><div id="networks"></div></details>
 <button type="button" id="scan">刷新网络列表</button><small id="scanStatus" role="status"></small>
@@ -46,9 +50,10 @@ button{background:var(--accent);border:0;border-radius:.6rem;cursor:pointer;marg
 <small id="wifiStatus" role="status"></small>
 </fieldset>
 <fieldset id="service"><legend>服务连接</legend>
-<label>连接方式<select id="mode"><option value="default">小智服务</option><option value="custom">自建语音网关</option></select></label>
+<label>连接方式<select id="mode"><option value="none" hidden>暂不配置</option><option value="default">小智服务</option><option value="custom">自建语音网关</option></select></label>
 <p id="xiaozhiHelp">保存并联网后，若设备显示激活码，请在手机恢复上网后登录<a href="https://xiaozhi.me/console/" target="_blank" rel="noopener noreferrer">小智官方控制台</a>，按提示绑定设备并配置智能体。网址为 xiaozhi.me/console/。</p>
 <div id="custom" hidden>
+<small>保存后，可在设备的「语音互动 → 切换语音服务」中切换小智和自建网关。</small>
 <label>网关地址<input id="url" placeholder="wss://voice.example.com/device" maxlength="384" autocomplete="off"></label>
 <label>设备令牌<input id="token" type="password" maxlength="512" autocomplete="new-password"></label>
 </div></fieldset>
@@ -66,21 +71,26 @@ button{background:var(--accent);border:0;border-radius:.6rem;cursor:pointer;marg
 <label>音色<input id="voice" maxlength="64" placeholder="使用网关默认值"></label>
 <button id="saveSpeech" type="button" hidden>保存语音设置</button><small role="status" id="speechStatus"></small>
 </fieldset>
-<fieldset id="controls" hidden><legend>语音通话功能</legend>
-<label><input type="checkbox" id="allowMusic">优先播放本地音乐</label>
+<fieldset id="controls" hidden><legend>设备功能与技能</legend><label id="wakeOption" hidden><input id="wakeEnabled" type="checkbox">允许用“小鸭小鸭”唤醒设备</label><small id="wakeStatus" role="status"></small><p>选择语音通话可以操作的设备功能。</p>
+<label><input type="checkbox" id="allowMusic">允许控制音乐与播放列表</label>
 <label><input type="checkbox" id="allowVolume">允许调整音量</label>
 <label><input type="checkbox" id="allowState">允许退出通话并返回首页</label>
+<label hidden id="networkPermission"><input type="checkbox" id="allowNetwork">允许查看连接、开关蓝牙和修改 Wi-Fi</label>
+<label>触发口令<input id="newPhrase" maxlength="96" placeholder="例如：开始晨练"></label>
+<label>执行动作<select id="newAction"><option>播放音乐</option><option>调大音量</option><option>返回首页</option></select></label>
+<button type="button" id="addSkill">添加到技能列表</button>
 <label>自定义技能<textarea id="voiceSkills" rows="4" placeholder="开始晨练=播放音乐 晴天"></textarea></label>
 <small>每行填写「口令=动作」，最多 24 条。可填「播放音乐」「调大音量」「返回首页」，也可指定歌曲或音量，例如「晚安=播放音乐 摇篮曲」「阅读时间=音量 25」。通话中说出口令即可触发已开启的动作。</small>
 <button type="button" id="saveControls">保存语音功能</button><small role="status" id="controlsStatus"></small></fieldset>
 <fieldset id="words"><legend>离线语音口令</legend>
 <small>在设备菜单选择「语音互动 → 说一句音乐口令」，看到提示后说话。口令可以直接填中文。多音字可改填无声调拼音，音节用空格分开。</small>
 <div id="phrases"></div>
-<label>点播歌曲（每行一个歌名）<textarea id="songs" rows="4" placeholder="晴天"></textarea></label>
+<label>点播歌曲（每行一个歌名）<textarea id="songs" rows="4" placeholder="尚未设置点播歌曲"></textarea></label>
 <small>添加“晴天”后，说“播放晴天”即可点歌。要指定读音，可填“晴天|qing tian”。</small>
 <button type="button" id="saveWords" disabled>保存离线口令</button><small id="wordsStatus" role="status"></small>
 </fieldset>
 <fieldset id="updateSource" hidden><legend>固件更新</legend>
+<label id="autoUpdateOption" hidden><input type="checkbox" id="autoUpdate">联网后自动检查新版本（仅提醒）</label>
 <button type="button" id="useSiteUpdates" hidden>使用本站更新</button>
 <label>HTTPS 发布清单网址<input type="url" id="updateUrl" maxlength="512"></label>
 <small>留空恢复默认地址。保存后在设备菜单选择「设备设置 → 检查更新」。</small>
@@ -91,6 +101,10 @@ button{background:var(--accent);border:0;border-radius:.6rem;cursor:pointer;marg
 <button type="button" id="saveCheck">保存清单</button><small role="status" id="checkStatus"></small></fieldset>
 <fieldset id="library" hidden><legend>点歌与收藏</legend><label>歌曲名或路径<input id="musicQuery"></label>
 <button type="button" id="searchMusic">搜索</button><ul id="searchHits"></ul><button type="button" id="moreMusic" hidden>更多结果</button>
+<section id="playlistPanel" hidden><h3>播放列表</h3>
+<label>新列表名称<input id="playlistName" maxlength="64"></label><span id="createList"></span>
+<label>当前列表<select id="playlistSelect"></select></label><span id="listActions"></span>
+<ol id="playlistTracks"></ol></section>
 <h3>我的收藏</h3><ul id="favList"></ul><small id="libraryStatus" role="status"></small></fieldset>
 <fieldset id="mediaConfig" hidden><legend>播放与留言</legend>
 <label>音乐目录<input id="musicDir" placeholder="留空使用卡根目录"></label>
@@ -99,7 +113,7 @@ button{background:var(--accent);border:0;border-radius:.6rem;cursor:pointer;marg
 <label><input id="chapterStop" type="checkbox">播完本章停止</label>
 <label>最长留言（秒）<input id="memoSeconds" type="number" min="1" max="300"></label>
 <button type="button" id="saveMedia">保存播放与留言设置</button><small id="mediaStatus" role="status"></small></fieldset>
-<fieldset id="sdBrowser" hidden><legend>SD 卡</legend>
+<fieldset id="sdBrowser" hidden><legend>SD 卡文件管理</legend>
 <div id="sdPath"></div><div id="pickDirectory" hidden>将当前目录填入
 <select id="dirTarget"><option value="musicDir">音乐目录</option><option value="storyDir">故事目录</option><option value="memoDir">留言目录</option></select>
 <button type="button" id="pickDir">选择此目录</button></div><button type="button" id="sdOpen">浏览目录</button>
@@ -134,7 +148,7 @@ button{background:var(--accent);border:0;border-radius:.6rem;cursor:pointer;marg
 const el=id=>document.getElementById(id);
 const controls=['播放','暂停','下一首','上一首','加音量','降音量'].map(name=>{
  const label=document.createElement('label'), input=document.createElement('input');
- label.textContent=name;label.append(input);el('phrases').append(label);return input;
+ input.placeholder=name;input.dataset.default=name;label.textContent=name;label.append(input);el('phrases').append(label);return input;
 });
 async function saveUpdateSource(useSite){
  const button=el('saveUpdateSource'),site=el('useSiteUpdates'),status=el('updateStatus');
@@ -157,6 +171,16 @@ async function saveUpdateSource(useSite){
  }catch(e){status.textContent=e.message||'保存失败，请重试'}
  finally{button.disabled=site.disabled=false}
 }
+el('autoUpdate').onchange=async event=>{
+ const box=event.target, enabled=box.checked;
+ box.disabled=true;
+ try{
+  const r=await deviceRequest('/profile',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'auto_update',enabled})});
+  const message=await r.text();if(!r.ok)throw Error(message);
+  el('updateStatus').textContent=message;
+ }catch(e){box.checked=!enabled;el('updateStatus').textContent=e.message}
+ finally{box.disabled=false}
+};
 el('saveUpdateSource').onclick=()=>saveUpdateSource(false);
 el('useSiteUpdates').onclick=()=>saveUpdateSource(true);
 let bluetoothEnabled=false;
@@ -186,11 +210,33 @@ el('saveStandby').onclick=async()=>{
  finally{button.disabled=false}
 };
 const actions={music:'播放音乐',volume:'调大音量',state:'返回首页'};
+el('wakeEnabled').onchange=async()=>{
+ const box=el('wakeEnabled');box.disabled=true;
+ try{
+  const r=await deviceRequest('/profile',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'wake',enabled:box.checked})});
+  if(!r.ok)throw Error(await r.text());
+  el('wakeStatus').textContent=await r.text();
+ }catch(error){box.checked=!box.checked;el('wakeStatus').textContent=error.message}
+ finally{box.disabled=false}
+};
+el('addSkill').onclick=()=>{
+ const phrase=el('newPhrase').value.trim();
+ if(!phrase || phrase.includes('=')){el('controlsStatus').textContent='请输入不含等号的触发口令';return}
+ const list=el('voiceSkills');
+ list.value=[list.value.trim(),phrase+'='+el('newAction').value].filter(Boolean).join('\n');
+ el('newPhrase').value='';el('controlsStatus').textContent='已添加，请保存语音功能';
+};
+for(const link of document.querySelectorAll('#settings nav a')){
+ const section=document.querySelector(link.hash);
+ const sync=()=>{link.hidden=section.hidden};
+ sync();new MutationObserver(sync).observe(section,{attributes:true,attributeFilter:['hidden']});
+}
 const switches={music:'allowMusic',volume:'allowVolume',state:'allowState'};
 el('saveControls').onclick=async()=>{
  const button=el('saveControls');button.disabled=true;
  try{
   const policy=Object.fromEntries(Object.entries(switches).map(([k,id])=>[k,el(id).checked]));
+  if(!el('networkPermission').hidden)policy.network=el('allowNetwork').checked;
   policy.skills=el('voiceSkills').value.split('\n').filter(s=>s.trim()).map(line=>{
    const [phrase,label,...extra]=line.split('=').map(s=>s.trim());
    if(!phrase||!label||extra.length)throw Error('请按「口令=动作」填写每一行');
@@ -210,9 +256,10 @@ el('saveWords').onclick=async()=>{
  const button=el('saveWords');button.disabled=true;
  try{
   const songs=el('songs').value.split('\n').map(s=>s.trim()).filter(Boolean);
-  const words=[...controls.map(c=>c.value.trim()),...songs].join('\n');
+  const words=[...controls.map(c=>c.value.trim()||c.placeholder),...songs].join('\n');
   const r=await deviceRequest('/profile',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'offline_words',words})});
   el('wordsStatus').textContent=await r.text();
+  if(r.ok){for(const input of controls)input.placeholder=input.value.trim()||input.placeholder;el('songs').placeholder=songs.join('\n')||'尚未设置点播歌曲'}
  }catch{el('wordsStatus').textContent='保存失败，请重试'}
  finally{button.disabled=false}
 };
@@ -269,7 +316,7 @@ function updateProtocolFields(){
  el('voice').placeholder=realtime?'留空使用实时模型默认音色':'使用网关默认值';
 }
 el('llmProtocol').onchange=updateProtocolFields;
-function modeChanged(){const custom=el('mode').value==='custom';for(const id of ['custom','llmSettings','speechSettings'])el(id).hidden=!custom;el('xiaozhiHelp').hidden=custom}
+function modeChanged(){const custom=el('mode').value==='custom';for(const id of ['custom','llmSettings','speechSettings'])el(id).hidden=!custom;el('xiaozhiHelp').hidden=el('mode').value!=='default'}
 el('mode').onchange=modeChanged;
 function showSaved(names){
  el('savedCount').textContent='已保存的网络（'+names.length+'/10）';
@@ -315,12 +362,41 @@ function mediaButton(row,title,action){
  };
  row.append(button);
 }
+let playlists={};
+async function changePlaylist(operation,name,track=''){
+ const message=await pocketAction('playlist',{operation,name,track});
+ if(operation!=='play'){
+  playlists=JSON.parse(await pocketAction('playlist',{operation:'list'}));
+  renderPlaylists(name);
+  refreshTrackButtons();
+ }
+ return message;
+}
+function renderPlaylists(preferred){
+ const select=el('playlistSelect'),names=Object.keys(playlists);
+ const selected=preferred||select.value;
+ select.replaceChildren(...names.map(name=>new Option(name,name)));
+ if(names.includes(selected))select.value=selected;
+ const name=select.value,buttons=el('listActions'),tracks=el('playlistTracks');
+ buttons.replaceChildren();tracks.replaceChildren();
+ if(!name)return;
+ if(playlists[name].length)mediaButton(buttons,'播放此列表',()=>changePlaylist('play',name));
+ mediaButton(buttons,'删除列表',()=>confirm('删除「'+name+'」？')?changePlaylist('delete',name):'');
+ for(const track of playlists[name]){
+  const row=document.createElement('li');row.textContent=track;tracks.append(row);
+  mediaButton(row,'移除',()=>changePlaylist('remove',name,track));
+ }
+}
+mediaButton(el('createList'),'新建列表',()=>changePlaylist('create',el('playlistName').value.trim()));
+el('playlistSelect').onchange=()=>{renderPlaylists();refreshTrackButtons()};
 function addTrack(row,path,fromBrowser=false){
  const inside=dir=>!dir||path.startsWith(dir+'/');
  row.dataset.track=path;row.dataset.browser=String(fromBrowser);
  const music=inside(mediaFolders?.music),story=inside(mediaFolders?.stories);
  if(music)mediaButton(row,'播放',()=>pocketAction('play_media',{path,kind:'music'}));
  if(fromBrowser&&story)mediaButton(row,'听故事',()=>pocketAction('play_media',{path,kind:'story'}));
+ const selected=el('playlistSelect').value;
+ if(music&&selected&&!playlists[selected].includes(path))mediaButton(row,'加入「'+selected+'」',()=>changePlaylist('add',selected,path));
  const favorite=favorites.includes(path);
  if(music||favorite)mediaButton(row,favorite?'移除收藏':'收藏',async()=>{
   const msg=await pocketAction('favorite',{path,enabled:!favorite});
@@ -586,6 +662,7 @@ async function load(){
   const response=await deviceRequest('/profile',{cache:'no-store'});
   if(!response.ok)throw Error('无法读取设置');
   const data=await response.json();
+  playlists=data.playlists||{};el('playlistPanel').hidden=!data.playlists;renderPlaylists();
   mediaFolders=data.media;favorites=data.favorites||[];el('library').hidden=!data.media;renderFavorites();
   el('mediaConfig').hidden=!data.media;
   if(data.media){
@@ -594,22 +671,28 @@ async function load(){
   }
   el('checklist').hidden=!Array.isArray(data.checklist);el('checkItems').value=(data.checklist||[]).join('\n');
   el('sdBrowser').hidden=!data.sd_browser;manageCard=data.sd_manage===true;el('sdTools').hidden=!manageCard;el('sdPath').textContent='/'+sdPath;
+  el('autoUpdateOption').hidden=typeof data.auto_update!=='boolean';el('autoUpdate').checked=data.auto_update===true;
   el('updateSource').hidden=typeof data.update_url!=='string';el('updateUrl').value=data.update_url||'';
   renderBluetooth(data.bluetooth_enabled);
+  el('wakeOption').hidden=typeof data.wake_enabled!=='boolean';
+  el('wakeEnabled').checked=data.wake_enabled===true;
   el('controls').hidden=!data.voice_controls;
   if(data.voice_controls){
+   el('networkPermission').hidden=typeof data.voice_controls.network!=='boolean';
+   el('allowNetwork').checked=data.voice_controls.network===true;
    for(const [group,id] of Object.entries(switches))el(id).checked=data.voice_controls[group];
    el('voiceSkills').value=data.voice_controls.skills.map(s=>s.phrase+'='+(s.argument===undefined?actions[s.action]:(s.action==='volume'?'音量':'播放音乐')+' '+s.argument)).join('\n');
    el('controlsStatus').textContent='';
   }
   el('standby').hidden=!Number.isInteger(data.standby_minutes);
   if(!el('standby').hidden)el('standbyMinutes').value=String(data.standby_minutes);
-  const lines=data.offline_words.split('\n');
-  controls.forEach((input,i)=>input.value=lines[i]);
-  el('songs').value=lines.slice(6).join('\n');el('saveWords').disabled=false;
+  const lines=(data.offline_words||'').split('\n');
+  controls.forEach((input,i)=>{input.value=lines[i]||'';input.placeholder=input.value||input.dataset.default});
+  el('songs').value=lines.slice(6).join('\n');el('songs').placeholder=el('songs').value||'尚未设置点播歌曲';el('saveWords').disabled=false;
   showSaved(data.saved_wifi||[]);
   for(const key of ['url','model','asr','tts','voice'])el(key).value=data[key]||'';
-  el('mode').value=data.url?'custom':'default';
+  el('mode').querySelector('[value=none]').hidden=data.voice_configured===undefined;
+  el('mode').value=data.voice_mode||(data.url?'custom':data.voice_configured===false?'none':'default');
   el('protocolField').hidden=!data.protocol;
   el('llmProtocol').value=data.protocol||'chat_completions';
   updateProtocolFields();
@@ -807,7 +890,7 @@ async function authorize(name=''){
   while(response.status===202){
    const code=await response.text();
    if(attempt!==authAttempt)return;
-   el('authStatus').textContent='核对墨水屏上的 '+code+'，按 BOOT 同意或 PWR 拒绝。';
+   el('authStatus').textContent='核对墨水屏上的 '+code+'，按确认键同意，按电源键拒绝。';
    await new Promise(resolve=>setTimeout(resolve,1000));
    if(attempt!==authAttempt)return;
    response=await probe('');

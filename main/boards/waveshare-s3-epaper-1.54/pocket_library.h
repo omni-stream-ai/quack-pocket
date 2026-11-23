@@ -11,6 +11,7 @@ struct Result {
     bool json = false;
 };
 
+Result Playlist(const std::string& operation, const std::string& name, std::string track, bool file_selected = false);
 bool AddProfile(cJSON* profile);
 std::optional<Result> Handle(const cJSON* request);
 }

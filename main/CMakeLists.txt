@@ -200,8 +200,8 @@ idf_component_register(SRCS ${SOURCES} "music/music_index.c" "music/mp3_stream.c
 target_add_binary_data(${COMPONENT_LIB} "${PROJECT_DIR}/branding/duck-listening.pbm" BINARY)
 target_add_binary_data(${COMPONENT_LIB} "${PROJECT_DIR}/branding/duck-sleeping.pbm" BINARY)
 target_add_binary_data(${COMPONENT_LIB} "${CMAKE_CURRENT_SOURCE_DIR}/boards/${BOARD_TYPE}/ota_public.pem" TEXT)
-target_link_options(${COMPONENT_LIB} INTERFACE -Wl,--wrap=get_model_base_path)
 if(BOARD_TYPE STREQUAL "waveshare-s3-epaper-1.54")
+    target_link_options(${COMPONENT_LIB} INTERFACE -Wl,--wrap=get_model_base_path -Wl,--wrap=get_static_srmodels)
     target_link_options(${COMPONENT_LIB} INTERFACE -Wl,--wrap=sdmmc_read_sectors -Wl,--wrap=sdmmc_write_sectors)
 endif()
 

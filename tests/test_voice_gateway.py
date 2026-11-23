@@ -52,11 +52,25 @@ class MusicCommands(unittest.TestCase):
             ("adjust_volume", {"delta": -10}, "self.audio_speaker.adjust_volume"),
             ("enter_local_mode", {}, "self.voice.enter_local_mode"),
             ("open_setup", {}, "self.disp.network"),
+            ("radio_status", {}, "self.radio.status"),
+            ("set_bluetooth", {"enabled": False}, "self.radio.bluetooth"),
+            ("disable_wifi", {}, "self.radio.disable_wifi"),
         ):
             self.assertEqual(music_call({"function": {"name": name, "arguments": json.dumps(args)}}), (target, args))
         for bad in (-1, 101, True):
             with self.assertRaises(ValueError):
                 music_call({"function": {"name": "set_volume", "arguments": json.dumps({"volume": bad})}})
+
+    def test_playlist_commands(self):
+        import json
+        for args in ({"operation": "list"}, {"operation": "create", "name": "晨练"},
+                     {"operation": "add", "name": "晨练", "track": "晴天"},
+                     {"operation": "play", "name": "晨练"}):
+            call = {"function": {"name": "playlist", "arguments": json.dumps(args)}}
+            self.assertEqual(music_call(call), ("self.music.playlist", args))
+        for args in ({"operation": "play"}, {"operation": "remove", "name": "晨练"}):
+            with self.assertRaises(ValueError):
+                music_call({"function": {"name": "playlist", "arguments": json.dumps(args)}})
 
     def test_spoken_title(self):
         call = {"function": {"name": "play_file", "arguments": '{"path":"月亮代表我的心"}'}}

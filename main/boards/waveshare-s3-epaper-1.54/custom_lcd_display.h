@@ -41,7 +41,7 @@ public:
     void ShowUpdatePage(const std::string& text);
     void ShowGuide(int page);
     bool ShowVoiceStandby(bool visible);
-    void ShowMenu(const std::string& header, const char* icon, const char* title, const std::string& detail, const char* navigation = "PWR 短按下一项 · 双击上一项");
+    void ShowMenu(const std::string& header, const char* icon, const char* title, const std::string& detail, const char* navigation = "电源键 短按下一项 · 双击上一项");
     void RefreshHome();
     void ShowDisconnectedHome(bool reconnecting);
     void CloseMenu();

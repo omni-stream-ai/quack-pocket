@@ -20,6 +20,8 @@ bool AddProfile(cJSON* profile) {
         auto* list = cJSON_AddArrayToObject(profile, "checklist");
         for (auto& item : items) cJSON_AddItemToArray(list, cJSON_CreateString(item.text.c_str()));
     }
+    auto playlists = pocket_media::Load("playlists");
+    cJSON_AddItemToObject(profile,"playlists",playlists ? playlists.release() : cJSON_CreateObject());
     auto favorites = pocket_media::Load("favorites");
     cJSON_AddItemToObject(profile,"favorites",favorites ? favorites.release() : cJSON_CreateArray());
     pocket_media::Config().Export(cJSON_AddObjectToObject(profile, "media"));
@@ -72,16 +74,46 @@ Result BrowseCard(const std::string& path, const cJSON* cursor) {
     return JsonResult(result.get());
 }
 
+struct CardIndex {
+    CardLease lease;
+    music_index_t index{};
+    CardIndex() {
+        if (!lease.ready) return;
+        for (auto path : {MUSIC_SD_ROOT "/.omni-music/catalog-v2", MUSIC_SD_ROOT "/.omni-music/previous-v2", MUSIC_SD_ROOT "/omni.idx"})
+            if (music_index_open(&index,path)) break;
+    }
+    ~CardIndex() { music_index_close(&index); }
+};
+
+Result ResolvePlaylistTrack(const std::string& title) {
+    CardIndex card;
+    if (!card.lease.ready) return {false, "请插入 SD 卡"};
+    if (!card.index.file) return {false, "请在设备菜单刷新曲库"};
+    uint32_t low, high, id;
+    if (!music_index_directory(&card.index,pocket_media::Config().music.c_str(),&low,&high))
+        return {false, "曲库读取失败"};
+    if (title.find('/') != std::string::npos) {
+        if (!music_index_find(&card.index,title.c_str(),&id) || id < low || id >= high)
+            return {false, "音乐目录中未找到这个路径，请核对路径或刷新曲库"};
+    } else {
+        auto result = music_index_find_title_in(&card.index,title.c_str(),&id,low,high,
+            [](void*) { vTaskDelay(1); return true; },nullptr);
+        if (result == MUSIC_TITLE_AMBIGUOUS) return {false, "匹配到多首，请指定文件夹和文件名"};
+        if (result == MUSIC_TITLE_MISSING) return {false, "曲库中未找到这首歌"};
+        if (result != MUSIC_TITLE_FOUND) return {false, "曲库读取失败"};
+    }
+    char path[MUSIC_PATH_CAPACITY];
+    if (!music_index_get(&card.index,id,path)) return {false, "曲库读取失败"};
+    return {true, path};
+}
+
 Result SearchCard(const std::string& query, const cJSON* cursor) {
     if (query.size() > 255 || !cJSON_IsNumber(cursor) || cursor->valueint < 0 ||
         cursor->valueint != cursor->valuedouble) return Result{false, "搜索参数无效"};
-    CardLease lease;
-    if (!lease.ready) return Result{false, "请插入 SD 卡"};
-    music_index_t index{};
-    for (auto path : {MUSIC_SD_ROOT "/.omni-music/catalog-v2", MUSIC_SD_ROOT "/.omni-music/previous-v2", MUSIC_SD_ROOT "/omni.idx"})
-        if (music_index_open(&index,path)) break;
-    if (!index.file) return Result{false, "请在设备菜单刷新曲库"};
-    struct IndexGuard { music_index_t* index; ~IndexGuard() { music_index_close(index); } } guard{&index};
+    CardIndex card;
+    if (!card.lease.ready) return {false, "请插入 SD 卡"};
+    auto& index = card.index;
+    if (!index.file) return {false, "请在设备菜单刷新曲库"};
     uint32_t first, end;
     if (!music_index_directory(&index,pocket_media::Config().music.c_str(),&first,&end)) return Result{false, "曲库读取失败"};
     uint32_t pos = std::max(first,static_cast<uint32_t>(cursor->valueint));
@@ -101,9 +133,83 @@ Result SearchCard(const std::string& query, const cJSON* cursor) {
 
 } // namespace
 
+Result Playlist(const std::string& operation, const std::string& name, std::string track, bool file_selected) {
+    if (operation == "add" && !file_selected) {
+        if (track.empty() || !ValidPocketPath(track)) return {false, "歌曲名称或路径无效"};
+        auto result = ResolvePlaylistTrack(track);
+        if (!result.ok) return result;
+        track = std::move(result.body);
+    }
+    std::lock_guard<std::mutex> guard(pocket_media::lock);
+    auto lists = pocket_media::Load("playlists");
+    if (!lists) lists.reset(cJSON_CreateObject());
+    if (operation == "list" && name.empty()) return JsonResult(lists.get());
+    if (operation == "names") {
+        std::string names;
+        for (auto* list = lists->child; list; list = list->next) {
+            if (!names.empty()) names += "、";
+            names += list->string;
+        }
+        return {true, names.empty() ? "还没有歌单" : "已有歌单：" + names};
+    }
+    if (name.empty() || name.size() > 64 || name.find_first_of("\r\n") != std::string::npos)
+        return {false, "列表名须为单行，最长 64 字节"};
+    auto* songs = cJSON_GetObjectItemCaseSensitive(lists.get(),name.c_str());
+    if (operation == "create") {
+        if (songs) return {false, "列表已存在"};
+        if (cJSON_GetArraySize(lists.get()) >= 16 || !cJSON_AddArrayToObject(lists.get(),name.c_str()))
+            return {false, "无法新建列表（最多 16 个）"};
+    } else if (!songs) return {false, "未找到播放列表"};
+    else if (operation == "list") {
+        std::string titles;
+        for (auto* song = songs->child; song; song = song->next) {
+            std::string path = song->valuestring;
+            if (!titles.empty()) titles += "、";
+            titles += path.substr(path.rfind('/') + 1);
+        }
+        return {true, titles.empty() ? "歌单为空" : name + "：" + titles};
+    } else if (operation == "play") {
+        if (!cJSON_GetArraySize(songs)) return {false, "播放列表为空"};
+        auto* player = MusicPlayer::Active();
+        if (!player || !player->Request(MusicAction::Playlist,name.c_str())) return {false, "播放器正忙"};
+        return {true, "已请求播放 " + name};
+    } else if (operation == "delete") {
+        cJSON_DeleteItemFromObjectCaseSensitive(lists.get(),name.c_str());
+    } else if (operation == "add" || operation == "remove") {
+        if (track.empty() || !ValidPocketPath(track)) return {false, "歌曲名称或路径无效"};
+        int count = cJSON_GetArraySize(songs), i = 0;
+        while (i < count && track != cJSON_GetArrayItem(songs,i)->valuestring) ++i;
+        if (operation == "remove") {
+            if (i == count && track.find('/') == std::string::npos) {
+                auto stem = [](std::string title) {
+                    title.erase(0,title.rfind('/') + 1);
+                    if (title.size() >= 4 && !strcasecmp(title.c_str()+title.size()-4,".mp3"))
+                        title.resize(title.size()-4);
+                    return title;
+                };
+                auto wanted = stem(track);
+                for (int j = 0; j < count; ++j) {
+                    if (strcasecmp(stem(cJSON_GetArrayItem(songs,j)->valuestring).c_str(),wanted.c_str())) continue;
+                    if (i != count) return {false, "歌单中有同名歌曲，请指定路径"};
+                    i = j;
+                }
+            }
+            if (i == count) return {false, "列表中没有这首歌"};
+            cJSON_DeleteItemFromArray(songs,i);
+        } else {
+            if (i != count) return {false, "歌曲已在列表中"};
+            if (count >= 48) return {false, "列表最多 48 首"};
+            if (!cJSON_AddItemToArray(songs,cJSON_CreateString(track.c_str()))) return {false, "内存不足"};
+        }
+    } else return {false, "未知列表操作"};
+    if (!pocket_media::Save("playlists",lists.get())) return {false, "播放列表保存失败"};
+    return {true, "播放列表已更新"};
+}
+
 std::optional<Result> Handle(const cJSON* data) {
     auto get = [&](const char* key) { return pocket_media::Text(data,key); };
     const std::string action = get("action");
+    if (action == "playlist") return Playlist(get("operation"),get("name"),get("track"),true);
     if (action=="sd_reindex") {
         auto* player=MusicPlayer::Active();
         if (!player || !player->Request(MusicAction::Refresh)) return Result{false,"播放器正忙，请稍后重试"};

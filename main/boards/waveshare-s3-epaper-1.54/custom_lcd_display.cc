@@ -24,6 +24,7 @@
 #include "config.h"
 
 #include "board.h"
+#include <wifi_station.h>
 #include "application.h"
 #include "voice/voice_profile.h"
 
@@ -525,7 +526,7 @@ void CustomLcdDisplay::ShowSetupCode(const char* ssid, const char* password, uns
             ESP_LOGW(TAG, "Wi-Fi QR encoding failed");
 
         auto* steps = lv_label_create(setup_overlay_);
-        lv_label_set_text(steps, !lan_url.empty() ? "同一 Wi-Fi\n扫码管理\n\nPWR 退出" : "1 手机扫码\n加入热点\n\n2 浏览器\n打开下方\n网址");
+        lv_label_set_text(steps, !lan_url.empty() ? "同一 Wi-Fi\n扫码管理\n\n电源键 退出" : "1 手机扫码\n加入热点\n\n2 浏览器\n打开下方\n网址");
         lv_obj_set_pos(steps, 130, 4);
         auto* details = lv_label_create(setup_overlay_);
         lv_obj_set_style_text_line_space(details, 0, 0);
@@ -548,11 +549,11 @@ void CustomLcdDisplay::SetChatMessage(const char* role, const char* content) {
     if (content && !*content && !strcmp(role, "system") &&
         Application::GetInstance().GetDeviceState() == kDeviceStateIdle) {
         const char* source = VoiceProfile::Load().Custom() ? "自建语音网关" : "小智语音服务";
-        std::string home = std::string(source) + (Settings("omni_ui").GetInt("wake", 1) ? "\n说“小鸭小鸭”开始对话" : "\n按 BOOT 开始对话") + "\nPWR 播放音乐\n长按 BOOT 主菜单";
+        std::string home = std::string(source) + (Settings("omni_ui").GetInt("wake", 1) ? "\n说“小鸭小鸭”开始对话" : "\n按确认键 开始对话") + "\n电源键 播放音乐\n长按确认键 主菜单";
         LcdDisplay::SetChatMessage(role, home.c_str());
     } else if (content && !strcmp(role, "system") &&
                Application::GetInstance().GetDeviceState() == kDeviceStateActivating) {
-        std::string message = std::string(content) + "\n长按 BOOT 打开主菜单";
+        std::string message = std::string(content) + "\n长按确认键 打开菜单";
         LcdDisplay::SetChatMessage(role, message.c_str());
     } else {
         LcdDisplay::SetChatMessage(role, content);
@@ -573,17 +574,20 @@ void CustomLcdDisplay::ShowMenu(const std::string& header, const char* icon, con
     centered(title, 88);
     if (!detail.empty()) centered(detail.c_str(), 110);
     centered(navigation, 145);
-    centered("BOOT 短按确认 · 长按返回", 167);
+    centered("确认键 短按确认 · 长按返回", 167);
     Unlock();
 }
+
+static void AddHomeIndicators(lv_obj_t* page);
 
 void CustomLcdDisplay::ShowDisconnectedHome(bool reconnecting) {
     if (!Lock(3000)) return;
     ResetSaver();
     if (!network_page_) network_page_ = CreatePageLabel();
     lv_obj_clean(network_page_);
-    RenderHomeText(network_page_, reconnecting ? "Wi-Fi 重连中" : "尚未设置 Wi-Fi", "短按 BOOT 说音乐口令");
+    RenderHomeText(network_page_, reconnecting ? "Wi-Fi 重连中" : (Settings("omni_ui").GetInt("wifi_on", 1) ? "尚未设置 Wi-Fi" : "Wi-Fi 已关闭"), "短按确认键 说音乐口令");
     AddPocketDuck(network_page_, 136, 5);
+    AddHomeIndicators(network_page_);
     network_home_ = true;
     if (menu_label_) lv_obj_move_foreground(menu_label_);
     Unlock();
@@ -643,20 +647,73 @@ void CustomLcdDisplay::ShowVoiceHint(const char* text, int duration_ms) {
     Unlock();
 }
 
+
+static void AddHomeIndicators(lv_obj_t* page) {
+    auto* status = lv_label_create(page);
+    lv_obj_set_pos(status, 0, 144);
+    auto* battery = lv_bar_create(status);
+    lv_obj_set_pos(battery, 136, 4);
+    lv_obj_set_size(status, 185, 46);
+    lv_obj_set_size(battery, 31, 14);
+    lv_obj_set_style_radius(battery, 2, 0);
+    lv_obj_set_style_border_color(battery, lv_color_black(), 0);
+    lv_obj_set_style_border_width(battery, 2, 0);
+    lv_obj_set_style_bg_color(battery, lv_color_white(), 0);
+    lv_obj_set_style_bg_color(battery, lv_color_black(), LV_PART_INDICATOR);
+    lv_obj_set_style_radius(battery, 0, LV_PART_INDICATOR);
+    auto* tip = lv_obj_create(status);
+    lv_obj_remove_style_all(tip);
+    lv_obj_set_size(tip, 3, 6);
+    lv_obj_set_pos(tip, 167, 8);
+    lv_obj_set_style_bg_color(tip, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(tip, LV_OPA_COVER, 0);
+    auto update = [](lv_timer_t* timer) {
+        auto* label = static_cast<lv_obj_t*>(lv_timer_get_user_data(timer));
+        auto* bar = lv_obj_get_child(label, 0);
+        int level;
+        bool charging, discharging;
+        bool known = Board::GetInstance().GetBatteryLevel(level, charging, discharging);
+        bool online = WifiStation::GetInstance().IsConnected();
+        const char* text = online ? (known ? "Wi-Fi 在线" : "Wi-Fi 在线 · 电量？")
+                                  : (known ? "Wi-Fi 离线" : "Wi-Fi 离线 · 电量？");
+        char clock[40] = "时间待同步";
+        time_t now = time(nullptr);
+        if (now >= 1704067200) {
+            now += Settings("omni_ui").GetInt("utc_offset", 480) * 60;
+            struct tm local{};
+            gmtime_r(&now, &local);
+            static const char* days[] = {"日","一","二","三","四","五","六"};
+            lv_timer_set_period(timer, (60 - local.tm_sec) * 1000);
+            snprintf(clock, sizeof(clock), "%02d:%02d  星期%s", local.tm_hour, local.tm_min, days[local.tm_wday]);
+        }
+        char line[96];
+        snprintf(line, sizeof(line), "%s\n%s", text, clock);
+        if (strcmp(lv_label_get_text(label), line)) lv_label_set_text(label, line);
+        lv_bar_set_value(bar, known ? level : 0, LV_ANIM_OFF);
+    };
+    auto* timer = lv_timer_create(update, 60000, status);
+    if (timer) {
+        update(timer);
+        lv_obj_add_event_cb(status, [](lv_event_t* event) {
+            lv_timer_delete(static_cast<lv_timer_t*>(lv_event_get_user_data(event)));
+        }, LV_EVENT_DELETE, timer);
+    }
+}
+
 void CustomLcdDisplay::RenderHomeText(lv_obj_t* page, const char* greeting, const char* action) {
-    if (PocketMemoUnread()) action = "有新留言 · BOOT 收听";
-    lv_label_set_text_fmt(page, "嘎嘎口袋\n%s\n\n%s\n短按 PWR 播放或暂停音乐\n长按 BOOT 打开主菜单", greeting, action);
+    if (PocketMemoUnread()) action = "有新留言 · 确认键 收听";
+    lv_label_set_text_fmt(page, "嘎嘎口袋\n%s\n\n%s\n电源键 播放 / 暂停\n长按确认键 打开菜单", greeting, action);
 }
 
 void CustomLcdDisplay::RenderConnectedHome() {
     const char* greeting = Settings("omni_ui").GetInt("wake", 1) ? "叫我“小鸭小鸭”" : "语音唤醒已关闭";
-    RenderHomeText(home_page_, greeting, "短按 BOOT 进入语音通话");
+    RenderHomeText(home_page_, greeting, "确认键 语音通话");
 }
 
 void CustomLcdDisplay::RefreshHome() {
     if (!Lock(3000)) return;
     if (home_page_) RenderConnectedHome();
-    if (network_home_ && network_page_) RenderHomeText(network_page_, "离线首页", "短按 BOOT 说音乐口令");
+    if (network_home_ && network_page_) RenderHomeText(network_page_, "离线首页", "短按确认键 说音乐口令");
     Unlock();
 }
 
@@ -667,6 +724,7 @@ void CustomLcdDisplay::ShowHome(bool visible) {
         if (!home_page_) {
             home_page_ = CreatePageLabel();
             AddPocketDuck(home_page_, 136, 5);
+            AddHomeIndicators(home_page_);
         }
         RenderConnectedHome();
         if (network_page_) lv_obj_move_foreground(network_page_);
@@ -823,10 +881,10 @@ void CustomLcdDisplay::ShowUpdatePage(const std::string& text) {
 
 void CustomLcdDisplay::ShowGuide(int page) {
     static const char* const messages[] = {
-        "嘎嘎口袋   1/4\n嘎，按 BOOT 翻页。\n看背面，USB 朝右。",
-        "口袋音乐   2/4\n卡内 MP3 可离线听。\nPWR 播放或暂停。\n双击切歌，长按关机。",
+        "嘎嘎口袋   1/4\n嘎，按确认键 翻页。\n看背面，USB 朝右。",
+        "口袋音乐   2/4\n卡内 MP3 可离线听。\n电源键 播放或暂停。\n双击切歌，长按关机。",
         "叫醒小鸭   3/4\n\n待机短按任一键返回。\n喊“小鸭小鸭”：\n联网通话，离线说口令。\n离线口令需装模型。",
-        "手机设置   4/4\n\n长按 BOOT 打开菜单。\n选“手机与网络”组，\n再选“手机配网与模型”。\n重看：设备设置→使用帮助"
+        "手机设置   4/4\n\n长按确认键 打开菜单。\n选“手机与网络”组，\n再选“手机配网与模型”。\n重看：设备设置→使用帮助"
     };
     if (page < 0 || page > 3 || !Lock(3000)) return;
     RenderMenuLocked(messages[page]);
@@ -859,10 +917,10 @@ void CustomLcdDisplay::ShowGuide(int page) {
             lv_obj_set_style_line_color(line, lv_color_black(), 0);
             lv_obj_set_style_line_width(line, 2, 0);
             lv_obj_set_pos(line, page == 0 ? 100 : 130, 121);
-            label(page == 0 ? "BOOT" : "PWR", page == 0 ? 87 : 122, 137);
+            label(page == 0 ? "确认键" : "电源键", page == 0 ? 87 : 122, 137);
         }
         if (page == 0 || page == 2) AddPocketDuck(menu_label_, 142, 0);
-        label(page == 3 ? "BOOT 完成    PWR 跳过" : "BOOT 下一页  PWR 跳过", 0, 169);
+        label(page == 3 ? "确认键 完成    电源键 跳过" : "确认键 下一页  电源键 跳过", 0, 169);
     }
     Unlock();
 }

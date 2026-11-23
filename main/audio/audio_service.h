@@ -99,6 +99,7 @@ public:
     bool IsAfeWakeWord();
 
     std::unique_lock<std::mutex> AcquireCommandMicrophone();
+    bool WakeWordAllowed() const { return wake_allowed_.load(); }
     void SetWakeWordAllowed(bool allowed);
     void EnableWakeWordDetection(bool enable);
     void EnableVoiceProcessing(bool enable);
@@ -140,6 +141,7 @@ private:
     TaskHandle_t audio_output_task_handle_ = nullptr;
     TaskHandle_t opus_codec_task_handle_ = nullptr;
     std::mutex audio_queue_mutex_;
+    uint32_t decoder_generation_ = 0; // Protected by audio_queue_mutex_.
     std::condition_variable audio_queue_cv_;
     std::deque<std::unique_ptr<AudioStreamPacket>> audio_decode_queue_;
     std::deque<std::unique_ptr<AudioStreamPacket>> audio_send_queue_;

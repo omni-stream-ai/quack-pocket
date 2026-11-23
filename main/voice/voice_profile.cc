@@ -46,7 +46,8 @@ bool VoiceProfile::Save(const std::string& ssid, const std::string& password) co
     }
     std::unique_ptr<cJSON, decltype(&cJSON_Delete)> json(cJSON_CreateObject(), cJSON_Delete);
     if (!json) return false;
-    if (!AddModelSettings(json.get()) || !cJSON_AddStringToObject(json.get(), "url", url.c_str()) ||
+    if (!cJSON_AddStringToObject(json.get(), "mode", Custom() ? "custom" : default_selected ? "default" : "none") ||
+        !cJSON_AddBoolToObject(json.get(), "default_selected", default_selected) || !AddModelSettings(json.get()) || !cJSON_AddStringToObject(json.get(), "url", url.c_str()) ||
         !cJSON_AddStringToObject(json.get(), "token", token.c_str())) return false;
     if (!ssid.empty() && (!cJSON_AddStringToObject(json.get(), "wifi_ssid", ssid.c_str()) ||
         !cJSON_AddStringToObject(json.get(), "wifi_password", password.c_str()))) return false;
@@ -81,16 +82,38 @@ esp_err_t ReadProfile(Json& json) {
     return cJSON_IsObject(json.get()) ? ESP_OK : ESP_ERR_INVALID_RESPONSE;
 }
 
+bool HasLegacyEndpoint() {
+    for (auto ns : {"mqtt", "websocket"}) {
+        nvs_handle_t handle;
+        if (nvs_open(ns, NVS_READONLY, &handle) != ESP_OK) continue;
+        size_t size = 0;
+        auto err = nvs_get_str(handle, ns[0] == 'm' ? "endpoint" : "url", nullptr, &size);
+        nvs_close(handle);
+        if (err == ESP_OK && size > 1) return true;
+    }
+    return false;
+}
+
 VoiceProfile Decode(cJSON* json) {
-    return {string_value(json,"url"), string_value(json,"token"), string_value(json,"model"),
+    const std::string mode = string_value(json, "mode");
+    auto url = string_value(json, "url");
+    auto* selected = cJSON_GetObjectItemCaseSensitive(json, "default_selected");
+    return {url, string_value(json,"token"), string_value(json,"model"),
             string_value(json,"asr"), string_value(json,"tts"), string_value(json,"voice"),
-            cJSON_HasObjectItem(json,"protocol") ? string_value(json,"protocol") : "chat_completions"};
+            cJSON_HasObjectItem(json,"protocol") ? string_value(json,"protocol") : "chat_completions",
+            mode.empty() ? (url.empty() && (selected ? cJSON_IsTrue(selected) != 0 : HasLegacyEndpoint())) : mode == "default"};
 }
 }
 
 VoiceProfile VoiceProfile::Load() {
     Json json(nullptr, cJSON_Delete);
-    if (ReadProfile(json) != ESP_OK) return {};
+    auto err = ReadProfile(json);
+    if (err == ESP_ERR_NVS_NOT_FOUND) {
+        VoiceProfile legacy;
+        legacy.default_selected = HasLegacyEndpoint();
+        return legacy;
+    }
+    if (err != ESP_OK) return {};
     auto profile = Decode(json.get());
     return profile.Valid() ? profile : VoiceProfile{};
 }

@@ -12,7 +12,8 @@ public:
     Ota();
     ~Ota();
 
-    bool CheckVersion();
+    bool CheckVersion(bool check_firmware = true);
+    const std::string& CheckError() const { return check_error_; }
     esp_err_t Activate();
     bool HasActivationChallenge() { return has_activation_challenge_; }
     bool HasNewVersion() { return has_new_version_; }
@@ -32,6 +33,7 @@ public:
     std::string GetCheckVersionUrl();
 
 private:
+    std::string check_error_;
     std::string activation_message_;
     std::string activation_code_;
     bool has_new_version_ = false;

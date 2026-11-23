@@ -7,7 +7,12 @@ int BluetoothSetupPort(CustomLcdDisplay* display);
 void InitializeBluetoothPrompts(CustomLcdDisplay* display);
 void ShowBluetoothPairing(bool visible);
 void EnableOfflineSetupScan();
+void InitializeBackgroundManagement();
+void FinishFirstManagement();
 void StartBackgroundManagement(CustomLcdDisplay* display);
 bool BackgroundManagementEnabled();
 bool ApplyBackgroundManagement(CustomLcdDisplay* display, bool enabled);
 bool ManagementInUse();
+
+bool TogglePocketVoiceService();
+void SetPocketWakeEnabled(bool enabled);

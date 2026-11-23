@@ -26,6 +26,13 @@ PROBE = """<script>
         byId('retry').click();
         await wait(() => !byId('save').disabled);
         check(byId('updateUrl').value==='https://device.test/manifest.json','Missing update source');
+        const auto=byId('autoUpdate');
+        check(!byId('autoUpdateOption').hidden && !auto.checked,'Automatic checks should default off');
+        for(const enabled of [true,false]){
+            auto.click();
+            await wait(()=>!auto.disabled);
+            check(auto.checked===enabled && byId('updateStatus').textContent==='更新设置已保存','Auto-update preference failed');
+        }
         if(typeof characteristicMock!=='undefined'){
             check(!byId('useSiteUpdates').hidden,'Hosted update action missing');
             byId('useSiteUpdates').click();
@@ -43,6 +50,9 @@ PROBE = """<script>
         check(!byId('controls').hidden && byId('allowMusic').checked, 'Missing voice controls');
         byId('allowMusic').checked=false;
         byId('voiceSkills').value='阅读时间=音量 25';
+        byId('newPhrase').value='回家了';byId('newAction').value='返回首页';byId('addSkill').click();
+        check(document.querySelector('#phrases input').placeholder==='播放','Missing saved command hint');
+        check(!document.querySelector('nav a[href="#sdBrowser"]').hidden,'Missing SD navigation');
         byId('saveControls').click();
         await wait(()=>byId('controlsStatus').textContent==='语音功能已保存');
         check(byId('llmProtocol').value==='responses','Protocol failed to load');
@@ -288,7 +298,7 @@ class PhoneSetup(unittest.TestCase):
                     self.reply(503 if Handler.scans == 1 else 200, "application/json", json.dumps(["客厅 & Wi-Fi"]))
                 elif self.path == "/profile":
                     Handler.reads += 1
-                    profile = dict(protocol="responses", separate_model_settings=True, bluetooth_enabled=False, update_url="https://device.test/manifest.json", standby_minutes=5, url="wss://saved.test/device", has_token=True, has_wifi=True, model="chat", saved_wifi=networks,
+                    profile = dict(auto_update=False,protocol="responses", separate_model_settings=True, bluetooth_enabled=False, update_url="https://device.test/manifest.json", standby_minutes=5, url="wss://saved.test/device", has_token=True, has_wifi=True, model="chat", saved_wifi=networks,
                                    offline_words="播放\n暂停\n下一首\n上一首\n加音量\n降音量")
                     profile["voice_controls"] = dict(music=True, volume=True, state=True, skills=[])
                     profile.update(media=dict(music="",stories="故事",messages="留言",minutes=15,
@@ -378,6 +388,8 @@ class PhoneSetup(unittest.TestCase):
                         return self.reply(200,"text/plain","播放已排队" if action == "play_media" else "已更新收藏")
                     if action == "checklist" and payload["items"] == ["水杯","钥匙"]:
                         return self.reply(200,"text/plain","清单已保存")
+                    if payload.get("action") == "auto_update" and type(payload.get("enabled")) is bool:
+                        return self.reply(200,"text/plain","更新设置已保存")
                     if payload.get("action") == "update_source" and payload.get("url") in (
                             "https://updates.test/ota/manifest.json", "https://site.test/pocket/ota/manifest.json"):
                         self.reply(200, "text/plain", "更新地址已保存")
@@ -392,7 +404,7 @@ class PhoneSetup(unittest.TestCase):
                         self.reply(200,"text/plain","蓝牙已开启")
                         return
                     if payload == {"action": "voice_controls", "policy": dict(music=False, volume=True, state=True,
-                            skills=[dict(phrase="阅读时间", action="volume", argument=25)])}:
+                            skills=[dict(phrase="阅读时间", action="volume", argument=25),dict(phrase="回家了", action="state")])}:
                         return self.reply(200,"text/plain","语音功能已保存")
                     if payload == {"action": "standby", "minutes": 10}:
                         self.reply(200, "text/plain", "待机时间已保存")

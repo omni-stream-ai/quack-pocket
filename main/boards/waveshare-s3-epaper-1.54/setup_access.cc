@@ -94,6 +94,7 @@ void AnswerSetupPrompt(const std::string& ticket,bool accept) {
     pending={};
 }
 bool SetupRequestAllowed(httpd_req_t* req) {
+    if (!FirstManagementRequestAllowed(req)) return false;
     // The paired BLE bridge forwards over loopback on port 8871 (or the
     // setup AP listener on port 80). External clients still need a browser key.
     char secret[65];

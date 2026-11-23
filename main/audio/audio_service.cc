@@ -1,5 +1,8 @@
 #include "audio_service.h"
 #include <esp_log.h>
+#if CONFIG_BOARD_TYPE_WAVESHARE_S3_ePaper_1_54 && CONFIG_SPIRAM_ALLOW_STACK_EXTERNAL_MEMORY
+#include <freertos/idf_additions.h>
+#endif
 #include <cstring>
 
 #if CONFIG_USE_AUDIO_PROCESSOR
@@ -110,6 +113,15 @@ void AudioService::Start() {
 #endif
 
     /* Start the opus codec task */
+#if CONFIG_BOARD_TYPE_WAVESHARE_S3_ePaper_1_54 && CONFIG_SPIRAM_ALLOW_STACK_EXTERNAL_MEMORY
+    // The codec worker processes buffered PCM and Opus packets. Leave internal
+    // SRAM available for Wi-Fi and TLS while the audio service is running.
+    if (xTaskCreateWithCaps([](void* arg) {
+        static_cast<AudioService*>(arg)->OpusCodecTask();
+        vTaskDeleteWithCaps(nullptr);
+    }, "opus_codec", 2048 * 13, this, 2, &opus_codec_task_handle_, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) == pdPASS) return;
+    ESP_LOGW(TAG, "PSRAM codec stack unavailable, using internal stack");
+#endif
     xTaskCreate([](void* arg) {
         AudioService* audio_service = (AudioService*)arg;
         audio_service->OpusCodecTask();
@@ -308,6 +320,7 @@ void AudioService::AudioOutputTask() {
 }
 
 void AudioService::OpusCodecTask() {
+    uint32_t applied_generation = 0;
     while (true) {
         std::unique_lock<std::mutex> lock(audio_queue_mutex_);
         audio_queue_cv_.wait(lock, [this]() {
@@ -322,6 +335,7 @@ void AudioService::OpusCodecTask() {
         /* Decode the audio from decode queue */
         if (!audio_decode_queue_.empty() && audio_playback_queue_.size() < MAX_PLAYBACK_TASKS_IN_QUEUE) {
             auto packet = std::move(audio_decode_queue_.front());
+            const auto generation = decoder_generation_;
             audio_decode_queue_.pop_front();
             audio_queue_cv_.notify_all();
             lock.unlock();
@@ -330,6 +344,10 @@ void AudioService::OpusCodecTask() {
             task->type = kAudioTaskTypeDecodeToPlaybackQueue;
             task->timestamp = packet->timestamp;
 
+            if (applied_generation != generation) {
+                opus_decoder_->ResetState();
+                applied_generation = generation;
+            }
             SetDecodeSampleRate(packet->sample_rate, packet->frame_duration);
             if (opus_decoder_->Decode(std::move(packet->payload), task->pcm)) {
                 // Resample if the sample rate is different
@@ -341,7 +359,7 @@ void AudioService::OpusCodecTask() {
                 }
 
                 lock.lock();
-                audio_playback_queue_.push_back(std::move(task));
+                if (generation == decoder_generation_) audio_playback_queue_.push_back(std::move(task));
                 audio_queue_cv_.notify_all();
             } else {
                 ESP_LOGE(TAG, "Failed to decode audio");
@@ -661,7 +679,7 @@ bool AudioService::IsIdle() {
 
 void AudioService::ResetDecoder() {
     std::lock_guard<std::mutex> lock(audio_queue_mutex_);
-    opus_decoder_->ResetState();
+    ++decoder_generation_;
     timestamp_queue_.clear();
     audio_decode_queue_.clear();
     audio_playback_queue_.clear();

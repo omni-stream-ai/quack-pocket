@@ -6,6 +6,8 @@
 #include <esp_timer.h>
 #include "application.h"
 #include "assets.h"
+#include "boards/waveshare-s3-epaper-1.54/pocket_library.h"
+#include "boards/waveshare-s3-epaper-1.54/pocket_media.h"
 #include <cstring>
 #include <cmath>
 #include <atomic>
@@ -43,6 +45,24 @@ double TonePower(const std::vector<int16_t>& frame, unsigned hz) {
     }
     return (prev * prev + older * older - coefficient * prev * older) /
         (frame.size() * frame.size());
+}
+
+bool CheckDecoderReset() {
+    auto& audio = Application::GetInstance().GetAudioService();
+    unsigned before = 0;
+    for (unsigned turn = 0; turn < 40; ++turn) {
+        auto packet = std::make_unique<AudioStreamPacket>();
+        packet->sample_rate = turn % 2 ? 24000 : 16000;
+        packet->frame_duration = 20;
+        packet->payload = {0xf8, 0xff, 0xfe}; // 20 ms Opus silence
+        if (turn == 39) before = written.load();
+        if (!audio.PushPacketToDecodeQueue(std::move(packet),true)) return false;
+        if (turn != 39) {
+            vTaskDelay(1);
+            audio.ResetDecoder();
+        }
+    }
+    return Check(Await([&] { return written.load() > before; }), "playback after repeated decoder resets");
 }
 
 bool CheckAudioLoop() {
@@ -160,6 +180,8 @@ bool Exercise(MusicPlayer& player) {
         if (music_index_find_title(&index, name.c_str(), &title_track, nullptr, nullptr) == MUSIC_TITLE_FOUND &&
             title_track == candidate) title = name;
     }
+    char canonical[MUSIC_PATH_CAPACITY]{};
+    if (!title.empty()) readable = readable && music_index_get(&index,title_track,canonical);
     music_index_close(&index);
     music_sd_unmount();
     if (!Check(readable, "two consecutive nonempty indexed MP3 files")) return false;
@@ -185,19 +207,40 @@ bool Exercise(MusicPlayer& player) {
     if (!Check(!title.empty() && player.Request(MusicAction::PlayFile, title.c_str()) &&
                plays(title_track, true), "basename without extension through ES8311")) return false;
     unsigned before = releases.load();
-    return Check(player.Request(MusicAction::Stop) && Await([&] { return releases.load() > before; }), "stop and unmount");
+    if (!Check(player.Request(MusicAction::Stop) && Await([&] { return releases.load() > before; }), "stop and unmount")) return false;
+    auto name = "HIL-" + std::to_string(esp_timer_get_time());
+    using pocket_library::Playlist;
+    if (!Playlist("create",name,"").ok) return false;
+    struct Cleanup {
+        std::string name;
+        ~Cleanup() { pocket_library::Playlist("delete",name,""); }
+    } cleanup{name};
+    if (!Playlist("add",name,title).ok) return false;
+    auto lists = pocket_media::Load("playlists");
+    auto* saved = cJSON_GetArrayItem(cJSON_GetObjectItemCaseSensitive(lists.get(),name.c_str()),0);
+    if (!Check(cJSON_IsString(saved) && std::string(saved->valuestring) == canonical,
+               "spoken song title saved as catalog path")) return false;
+    if (!Playlist("play",name,"").ok || !plays(title_track,false)) return false;
+    // Older firmware stored spoken titles verbatim.
+    if (!Playlist("remove",name,canonical).ok || !Playlist("add",name,title,true).ok ||
+        !Playlist("play",name,"").ok || !plays(title_track,false)) return false;
+    before = releases.load();
+    return Check(player.Request(MusicAction::Stop) && Await([&] { return releases.load() > before; }),
+                 "play canonical and legacy playlist entries");
 }
 }
 
 void ScanProgress() { scan_active = true; }
-void PowerOffReached() { shutdown_unmounted = music_sd_drive() < 0; }
+void PowerOffReached() {
+    ESP_LOGI("music_hil", "Player stack minimum free: %u bytes", (unsigned)uxTaskGetStackHighWaterMark(nullptr));
+    shutdown_unmounted = music_sd_drive() < 0; }
 void StorageReleased() { ++releases; }
 void Queued(uint32_t track, bool shuffle) { current = track; random_mode = shuffle; ++queued; }
 void Paused() { ++pauses; }
 void OutputWritten() { ++written; }
 
 void Run(MusicPlayer& player) {
-    bool passed = CheckWakeWord() && Exercise(player) && CheckAudioLoop() && CheckShutdown(player);
+    bool passed = CheckWakeWord() && Exercise(player) && CheckDecoderReset() && CheckAudioLoop() && CheckShutdown(player);
     player.Request(MusicAction::Stop);
     ESP_LOGI("music_hil", "RESULT %s, queued=%u codec_writes=%u", passed ? "PASS" : "FAIL", queued.load(), written.load());
     for (;;) vTaskDelay(portMAX_DELAY);

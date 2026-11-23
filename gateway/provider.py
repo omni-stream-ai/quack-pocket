@@ -17,6 +17,12 @@ MUSIC_TOOLS = [
 ]
 
 
+PLAYLIST_TOOL = {"type": "function", "function": {
+    "name": "playlist", "description": "管理或播放指定的本地歌单。name 填歌单名，track 填要加入或移除的歌曲名或路径。",
+    "parameters": {"type": "object", "properties": {
+        "operation": {"type": "string", "enum": ["list", "create", "delete", "add", "remove", "play"]},
+        "name": {"type": "string"}, "track": {"type": "string"}}, "required": ["operation"]}}}
+
 VOLUME_TOOLS = [
     {"type": "function", "function": {
         "name": name, "description": description,
@@ -28,6 +34,15 @@ VOLUME_TOOLS = [
 ]
 LOCAL_MODE_TOOL = {"type": "function", "function": {
     "name": "enter_local_mode", "description": "用户明确要求返回首页、退出语音通话或结束通话时使用。",
+    "parameters": {"type": "object", "properties": {}}}}
+RADIO_STATUS = {"type": "function", "function": {
+    "name": "radio_status", "description": "查询设备无线网络和蓝牙状态。",
+    "parameters": {"type": "object", "properties": {}}}}
+BLUETOOTH_TOOL = {"type": "function", "function": {
+    "name": "set_bluetooth", "description": "按要求开关设备蓝牙。",
+    "parameters": {"type": "object", "properties": {"enabled": {"type": "boolean"}}, "required": ["enabled"]}}}
+WIFI_OFF = {"type": "function", "function": {
+    "name": "disable_wifi", "description": "关闭 Wi-Fi 后设备重启，可在机身菜单开启。",
     "parameters": {"type": "object", "properties": {}}}}
 SETUP_TOOL = {"type": "function", "function": {
     "name": "open_setup", "description": "用户明确要求重新配网或打开手机设置时使用。",
@@ -83,9 +98,17 @@ class Provider:
         phrase = messages[-1]["content"]
         enabled = settings.get("voice_controls", {})
         tools = list(MUSIC_TOOLS) if enabled.get("music", True) and _MUSIC_REQUEST.search(phrase) else []
+        if enabled.get("music", True) and re.search(r"歌[单單]|播放[列清][表單单]|playlist", phrase, re.I):
+            tools.append(PLAYLIST_TOOL)
         if enabled.get("volume", True) and re.search(r"音量|声音|聲音|大[声聲]|小[声聲]|静音|靜音|volume|louder|quieter|mute", phrase, re.I):
             tools.extend(VOLUME_TOOLS)
-        if re.search(r"重新配网|重新配網|打开.{0,4}设置|打開.{0,4}設置|open settings", phrase, re.I):
+        if enabled.get("network") and re.search(r"蓝牙|藍牙|无线网|网络|wi[ -]?fi|bluetooth", phrase, re.I):
+            tools.append(RADIO_STATUS)
+            if re.search(r"(?:打开|关闭|关掉|开启|启用|禁用).{0,5}(?:蓝牙|藍牙)|turn (?:on|off) bluetooth", phrase, re.I):
+                tools.append(BLUETOOTH_TOOL)
+            if re.search(r"(?:关闭|关掉|禁用).{0,5}(?:无线网|wi[ -]?fi)|turn off wi[ -]?fi", phrase, re.I):
+                tools.append(WIFI_OFF)
+        if enabled.get("network", True) and re.search(r"重新配网|重新配網|打开.{0,4}设置|打開.{0,4}設置|open settings", phrase, re.I):
             tools.append(SETUP_TOOL)
         if enabled.get("state", True) and re.search(r"本地模式|(?:返回|回到|回|去)首页|(?:退出|结束|关闭).{0,4}(?:通话|语音|小智)|local mode", phrase, re.I):
             tools.append(LOCAL_MODE_TOOL)
