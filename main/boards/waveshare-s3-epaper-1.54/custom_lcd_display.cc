@@ -1,3 +1,4 @@
+#include <font_awesome.h>
 #include "phone_setup.h"
 #include "custom_lcd_display.h"
 #include "pocket_memo.h"
@@ -75,6 +76,7 @@ static void AddPocketDuck(lv_obj_t* parent, int x, int y) {
 }
 
 LV_FONT_DECLARE(font_awesome_30_4);
+LV_FONT_DECLARE(font_awesome_20_4);
 
 #define TAG "CustomLcdDisplay"
 
@@ -206,6 +208,7 @@ CustomLcdDisplay::CustomLcdDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_p
     SetupUI();
     ESP_ERROR_CHECK_WITHOUT_ABORT(nvs_flash_init_partition("omni_ui"));
     if (Lock(0)) {
+        if (emoji_label_) lv_label_set_text(emoji_label_, FONT_AWESOME_COMMENT);
         std::memset(saver_pixels_, 255, 4);
         saver_pixels_[7] = 255;
         saver_image_.header.magic = LV_IMAGE_HEADER_MAGIC;
@@ -585,9 +588,9 @@ void CustomLcdDisplay::ShowDisconnectedHome(bool reconnecting) {
     ResetSaver();
     if (!network_page_) network_page_ = CreatePageLabel();
     lv_obj_clean(network_page_);
-    RenderHomeText(network_page_, reconnecting ? "Wi-Fi 重连中" : (Settings("omni_ui").GetInt("wifi_on", 1) ? "尚未设置 Wi-Fi" : "Wi-Fi 已关闭"), "短按确认键 说音乐口令");
-    AddPocketDuck(network_page_, 136, 5);
     AddHomeIndicators(network_page_);
+    RenderHomeText(network_page_, reconnecting ? "Wi-Fi 重连中" : (Settings("omni_ui").GetInt("wifi_on", 1) ? "尚未设置 Wi-Fi" : "Wi-Fi 已关闭"), "说音乐口令");
+    AddPocketDuck(network_page_, 136, 38);
     network_home_ = true;
     if (menu_label_) lv_obj_move_foreground(menu_label_);
     Unlock();
@@ -649,11 +652,26 @@ void CustomLcdDisplay::ShowVoiceHint(const char* text, int duration_ms) {
 
 
 static void AddHomeIndicators(lv_obj_t* page) {
+    const char* keys[] = {"确认键", "电源键", "长按确认"};
+    const char* actions[] = {"", "播放 / 暂停", "打开菜单"};
+    for (int i = 0; i < 3; ++i) {
+        auto* key = lv_label_create(page);
+        lv_label_set_text(key, keys[i]);
+        lv_obj_set_pos(key, 0, 102 + 29 * i);
+        lv_obj_set_width(key, 66);
+        lv_obj_set_style_text_align(key, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_style_pad_ver(key, 1, 0);
+        lv_obj_set_style_border_width(key, 1, 0);
+        lv_obj_set_style_radius(key, 4, 0);
+        auto* action = lv_label_create(page);
+        lv_obj_set_pos(action, 75, 104 + 29 * i);
+        lv_label_set_text(action, actions[i]);
+    }
     auto* status = lv_label_create(page);
-    lv_obj_set_pos(status, 0, 144);
+    lv_obj_set_pos(status, 0, 0);
     auto* battery = lv_bar_create(status);
-    lv_obj_set_pos(battery, 136, 4);
-    lv_obj_set_size(status, 185, 46);
+    lv_obj_set_pos(battery, 153, 5);
+    lv_obj_set_size(status, 190, 30);
     lv_obj_set_size(battery, 31, 14);
     lv_obj_set_style_radius(battery, 2, 0);
     lv_obj_set_style_border_color(battery, lv_color_black(), 0);
@@ -664,9 +682,21 @@ static void AddHomeIndicators(lv_obj_t* page) {
     auto* tip = lv_obj_create(status);
     lv_obj_remove_style_all(tip);
     lv_obj_set_size(tip, 3, 6);
-    lv_obj_set_pos(tip, 167, 8);
+    lv_obj_set_pos(tip, 184, 9);
     lv_obj_set_style_bg_color(tip, lv_color_black(), 0);
     lv_obj_set_style_bg_opa(tip, LV_OPA_COVER, 0);
+    auto* wifi = lv_label_create(status);
+    lv_obj_set_pos(wifi, 120, 1);
+    auto* time_label = lv_label_create(status);
+    lv_obj_set_pos(time_label, 2, 3);
+    lv_label_set_text(status, "");
+    lv_obj_set_style_text_font(wifi, &font_awesome_20_4, 0);
+    auto* unknown = lv_label_create(status);
+    lv_label_set_text(unknown, "?");
+    lv_obj_align_to(unknown, battery, LV_ALIGN_CENTER, 0, 0);
+    auto* greeting_label = lv_label_create(page);
+    lv_obj_set_pos(greeting_label, 2, 40);
+    lv_label_set_text(page, "");
     auto update = [](lv_timer_t* timer) {
         auto* label = static_cast<lv_obj_t*>(lv_timer_get_user_data(timer));
         auto* bar = lv_obj_get_child(label, 0);
@@ -674,8 +704,9 @@ static void AddHomeIndicators(lv_obj_t* page) {
         bool charging, discharging;
         bool known = Board::GetInstance().GetBatteryLevel(level, charging, discharging);
         bool online = WifiStation::GetInstance().IsConnected();
-        const char* text = online ? (known ? "Wi-Fi 在线" : "Wi-Fi 在线 · 电量？")
-                                  : (known ? "Wi-Fi 离线" : "Wi-Fi 离线 · 电量？");
+        auto* signal = lv_obj_get_child(label, 2);
+        const char* icon = online ? FONT_AWESOME_WIFI : FONT_AWESOME_WIFI_SLASH;
+        if (strcmp(lv_label_get_text(signal), icon)) lv_label_set_text(signal, icon);
         char clock[40] = "时间待同步";
         time_t now = time(nullptr);
         if (now >= 1704067200) {
@@ -684,11 +715,11 @@ static void AddHomeIndicators(lv_obj_t* page) {
             gmtime_r(&now, &local);
             static const char* days[] = {"日","一","二","三","四","五","六"};
             lv_timer_set_period(timer, (60 - local.tm_sec) * 1000);
-            snprintf(clock, sizeof(clock), "%02d:%02d  星期%s", local.tm_hour, local.tm_min, days[local.tm_wday]);
+            snprintf(clock, sizeof(clock), "%02d:%02d 周%s", local.tm_hour, local.tm_min, days[local.tm_wday]);
         }
-        char line[96];
-        snprintf(line, sizeof(line), "%s\n%s", text, clock);
-        if (strcmp(lv_label_get_text(label), line)) lv_label_set_text(label, line);
+        lv_obj_set_flag(lv_obj_get_child(label, 4), LV_OBJ_FLAG_HIDDEN, known);
+        auto* time_label = lv_obj_get_child(label, 3);
+        if (strcmp(lv_label_get_text(time_label), clock)) lv_label_set_text(time_label, clock);
         lv_bar_set_value(bar, known ? level : 0, LV_ANIM_OFF);
     };
     auto* timer = lv_timer_create(update, 60000, status);
@@ -701,19 +732,20 @@ static void AddHomeIndicators(lv_obj_t* page) {
 }
 
 void CustomLcdDisplay::RenderHomeText(lv_obj_t* page, const char* greeting, const char* action) {
-    if (PocketMemoUnread()) action = "有新留言 · 确认键 收听";
-    lv_label_set_text_fmt(page, "嘎嘎口袋\n%s\n\n%s\n电源键 播放 / 暂停\n长按确认键 打开菜单", greeting, action);
+    if (greeting) lv_label_set_text_fmt(lv_obj_get_child(page, 7), "嘎嘎口袋\n%s", greeting);
+    // Each shortcut consists of a key label followed by its action label.
+    lv_label_set_text(lv_obj_get_child(page, 1), PocketMemoUnread() ? "收听新留言" : action);
 }
 
 void CustomLcdDisplay::RenderConnectedHome() {
     const char* greeting = Settings("omni_ui").GetInt("wake", 1) ? "叫我“小鸭小鸭”" : "语音唤醒已关闭";
-    RenderHomeText(home_page_, greeting, "确认键 语音通话");
+    RenderHomeText(home_page_, greeting, "语音通话");
 }
 
 void CustomLcdDisplay::RefreshHome() {
     if (!Lock(3000)) return;
     if (home_page_) RenderConnectedHome();
-    if (network_home_ && network_page_) RenderHomeText(network_page_, "离线首页", "短按确认键 说音乐口令");
+    if (network_home_ && network_page_) RenderHomeText(network_page_, nullptr, "说音乐口令");
     Unlock();
 }
 
@@ -723,8 +755,8 @@ void CustomLcdDisplay::ShowHome(bool visible) {
     if (visible) {
         if (!home_page_) {
             home_page_ = CreatePageLabel();
-            AddPocketDuck(home_page_, 136, 5);
             AddHomeIndicators(home_page_);
+            AddPocketDuck(home_page_, 136, 38);
         }
         RenderConnectedHome();
         if (network_page_) lv_obj_move_foreground(network_page_);

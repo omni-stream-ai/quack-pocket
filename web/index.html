@@ -115,6 +115,29 @@ header{display:flex;flex-wrap:nowrap;align-items:center}#disconnect{width:44px;h
 .detail-view .save-panel{border:1px solid var(--line);padding:1.1rem}.detail-view #status:empty{margin:0}
 @media(prefers-reduced-motion:no-preference){.task-group a:has(.entry-icon):active{transform:scale(.98)}.detail-view fieldset:not(.outside-category){animation:detail-in .18s ease-out}@keyframes detail-in{from{opacity:.5;transform:translateY(4px)}to{opacity:1;transform:none}}}
 #factoryReset p+p{margin-top:.75rem}#requestReset{margin-top:1rem;background:#87352c;color:white}
+#sdBrowser{min-width:0}
+.card-location{display:flex;align-items:center;gap:14px;background:#254c3d;color:#fff;border-radius:18px;padding:18px}
+.card-location>svg{width:42px;height:48px;flex:none;color:#bde2c3}
+.card-location>div{min-width:0}.card-location span{font-size:.78rem;color:#d1e6d9}
+.card-location nav,.card-toolbar,#sdTools{display:flex;align-items:center;flex-wrap:wrap;gap:6px}
+#sdPath button{background:transparent;color:#fff;border:0;box-shadow:none;margin:0;padding:4px;min-height:34px;text-align:left;overflow-wrap:anywhere}
+#sdPath button[aria-current]{font-weight:750}
+.card-toolbar{margin:12px 0}.card-toolbar button,#sdEntries button{width:auto;margin:0}
+#sdTools{margin-inline-start:auto}#sdUpload{background:#285744;color:white}
+.card-options{border-block:1px solid #dce5dc;padding:10px 0}.card-options summary,#sdEntries summary{cursor:pointer;color:#3d604b}
+#sdEntries{list-style:none;padding:0;margin:14px 0;display:grid;gap:6px}
+#sdEntries li{display:grid;grid-template-columns:42px minmax(0,1fr) auto;gap:4px 10px;align-items:center;padding:10px;background:#fff;border:1px solid #dce5dc;border-radius:12px}
+.file-kind{grid-row:1/3;display:grid;place-items:center;height:42px;background:#eef2f4;color:#49606a;border-radius:10px}
+.file-kind svg{width:23px;height:23px}.file-kind.folder{background:#f7edd7;color:#86672e}.file-kind.audio{background:#e1efe5;color:#35664c}
+#sdEntries li>button,.file-name{grid-column:2;grid-row:1;text-align:left;overflow-wrap:anywhere;font-weight:650}
+#sdEntries li>button{background:transparent;color:inherit;border:0;box-shadow:none;padding:2px 0;min-height:0}
+.file-type{grid-column:2;grid-row:2;color:#56685e;font-size:.74rem}
+#sdEntries details{grid-column:3;grid-row:1/3}#sdEntries details summary{padding:8px;font-size:.84rem}
+#sdEntries details[open]{grid-column:1/-1;grid-row:4;border-top:1px solid #e0e8e1}
+#sdEntries [data-track]{grid-column:2/-1;grid-row:3;display:flex;flex-wrap:wrap;gap:5px}
+#sdEntries [data-track]:empty{display:none}#sdEntries [data-track] button{font-size:.8rem;padding:5px 9px;min-height:32px}
+#sdPreview{background:#f3f6f1;border-radius:14px;padding:14px;margin-top:12px;overflow-wrap:anywhere}
+#sdBrowser [hidden]{display:none}
 </style></head><body>
 <header><div class="brand"><img id="brandIcon" width="80" height="80" alt=""><div><h1>嘎嘎口袋</h1><p>设备管理</p></div></div><div class="connection-tools"><p id="connection" role="status">准备连接设备…</p><button id="disconnect" type="button" title="退出设备管理" aria-label="退出设备管理" hidden><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M10 4H5v16h5m4-13 5 5-5 5m-6-5h11"/></svg></button></div></header>
 <section class="guide" id="guide" hidden><div class="connect-hero"><div><h2>连接你的<br>嘎嘎口袋</h2><p>打开设备蓝牙，在附近设备中选择 Omni。</p><button id="connect">连接蓝牙设备</button></div><div class="device-stage" aria-hidden="true"><div class="pocket-shell"><div class="pocket-glass"><img class="pocket-duck" alt=""></div><span class="speaker"></span></div></div></div><p id="feedback" role="status"></p>
@@ -204,16 +227,23 @@ header{display:flex;flex-wrap:nowrap;align-items:center}#disconnect{width:44px;h
 <label>最长留言（秒）<input id="memoSeconds" type="number" min="1" max="300"></label>
 <button type="button" id="saveMedia">保存播放与留言设置</button><small id="mediaStatus" role="status"></small></fieldset>
 <fieldset id="sdBrowser" hidden><legend>SD 卡文件管理</legend>
-<div id="sdPath"></div><div id="pickDirectory" hidden>将当前目录填入
-<select id="dirTarget"><option value="musicDir">音乐目录</option><option value="storyDir">故事目录</option><option value="memoDir">留言目录</option></select>
-<button type="button" id="pickDir">选择此目录</button></div><button type="button" id="sdOpen">浏览目录</button>
-<div id="sdTools" hidden>
-<button type="button" id="sdMkdir">新建目录</button><button type="button" id="sdUpload">上传文件</button>
-<button type="button" id="sdReindex">刷新曲库</button>
-<button type="button" id="sdCancel" hidden>取消传输</button></div>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<symbol id="cardFolder" viewBox="0 0 24 24"><path d="M3 7V5h7l2 3h9v12H3z"/></symbol>
+<symbol id="cardAudio" viewBox="0 0 24 24"><path d="M9 17V6l11-2v11M9 9l11-2"/><ellipse cx="6" cy="18" rx="3" ry="2"/><ellipse cx="17" cy="16" rx="3" ry="2"/></symbol>
+<symbol id="cardFile" viewBox="0 0 24 24"><path d="M5 3h9l5 5v13H5zM14 3v6h5M8 13h8M8 17h6"/></symbol>
+</defs></svg>
+<div class="card-location"><svg aria-hidden="true" viewBox="0 0 40 48" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M5 16 16 4h17a2 2 0 0 1 2 2v36a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2zM18 7v9m5-9v9m5-9v9M10 25h20v12H10z"/></svg><div><span>SD 卡 · 当前位置</span><nav id="sdPath" aria-label="当前目录"></nav></div></div>
+<div class="card-toolbar"><button type="button" id="sdOpen">刷新目录</button>
+<button type="button" id="sdUp" hidden>上一级</button>
+<div id="sdTools" hidden><button type="button" id="sdUpload">上传文件</button>
+<button type="button" id="sdCancel" hidden>取消传输</button></div></div>
+<details class="card-options"><summary>目录工具</summary>
+<div id="cardWriteTools" hidden><button type="button" id="sdMkdir">新建目录</button><button type="button" id="sdReindex">刷新曲库</button></div>
+<div id="pickDirectory" hidden><label>用作播放目录<select id="dirTarget"><option value="musicDir">音乐目录</option><option value="storyDir">故事目录</option><option value="memoDir">留言目录</option></select></label>
+<button type="button" id="pickDir">选择此目录</button></div></details>
 <div id="sdPreview" hidden><div id="sdPreviewTitle"></div><div id="sdPreviewBody"></div>
 <button type="button" id="sdClosePreview">关闭预览</button></div>
-<button type="button" id="sdUp" hidden>上一级</button><ul id="sdEntries"></ul>
+<ul id="sdEntries"></ul>
 <button type="button" id="sdMore" hidden>更多</button><small id="sdStatus" role="status"></small></fieldset>
 <fieldset id="standby" hidden><legend>语音待机</legend>
 <label>空闲多久进入待机<select id="standbyMinutes">
@@ -223,12 +253,20 @@ header{display:flex;flex-wrap:nowrap;align-items:center}#disconnect{width:44px;h
 <fieldset id="screen"><legend>待机画面</legend>
 <small>语音待机时全屏显示。默认是侧耳听声的小鸭。</small>
 <label>选择待机图片<input type="file" id="photo" accept="image/*"></label>
+<div id="imageTools" hidden><label>适配屏幕<select id="imageFit"><option value="contain">完整显示 · 空白处留白</option><option value="cover">裁切铺满</option></select></label>
+<label id="cropControl" hidden><span id="cropAxis">裁切位置</span><input type="range" id="cropPosition" min="0" max="100" value="50"></label>
+<label>黑白效果<select id="imageStyle"><option value="photo">照片 · 保留明暗</option><option value="ink">线稿 / 文字 · 清晰轮廓</option></select></label>
+<label>亮度<input type="range" id="imageLight" min="-64" max="64" value="0"></label></div>
 <canvas class="saver-preview" id="preview" width="200" height="200" hidden aria-label="待机画面预览"></canvas>
 <button type="button" id="applyImage" disabled>保存待机画面</button><button type="button" id="clearImage">恢复默认小鸭</button>
 <small id="imageStatus" role="status"></small></fieldset>
 <fieldset id="shutdownScreen"><legend>关机画面</legend>
 <small>关机后保留在墨水屏上。默认是月下熟睡的小鸭。</small>
 <label>选择关机图片<input type="file" id="photoOff" accept="image/*"></label>
+<div id="imageToolsOff" hidden><label>适配屏幕<select id="imageFitOff"><option value="contain">完整显示 · 空白处留白</option><option value="cover">裁切铺满</option></select></label>
+<label id="cropControlOff" hidden><span id="cropAxisOff">裁切位置</span><input type="range" id="cropPositionOff" min="0" max="100" value="50"></label>
+<label>黑白效果<select id="imageStyleOff"><option value="photo">照片 · 保留明暗</option><option value="ink">线稿 / 文字 · 清晰轮廓</option></select></label>
+<label>亮度<input type="range" id="imageLightOff" min="-64" max="64" value="0"></label></div>
 <canvas class="saver-preview" id="previewOff" width="200" height="200" hidden aria-label="关机画面预览"></canvas>
 <button type="button" id="applyImageOff" disabled>保存关机画面</button><button type="button" id="clearImageOff">恢复默认小鸭</button>
 <small id="imageStatusOff" role="status"></small></fieldset>
@@ -317,11 +355,14 @@ el('addSkill').onclick=()=>{
  el('newPhrase').value='';el('controlsStatus').textContent='已添加，请保存语音功能';
 };
 const settingsLinks=Array.from(document.querySelectorAll('#overview a[data-sections]'));
+let sdViewOpen=false;
 function showCategory(){
  const target=document.getElementById(location.hash.slice(1))?.closest('fieldset');
  const selected=settingsLinks.find(link=>!link.hidden && link.dataset.sections.split(' ').includes(target?.id));
  const sections=selected?selected.dataset.sections.split(' ').map(el).filter(section=>!section.hidden):[];
  const active=sections.includes(target)?target:sections[0];
+ if(active?.id==='sdBrowser'&&!sdViewOpen){sdViewOpen=true;queueMicrotask(()=>{if(sdViewOpen)browseCard(sdPath)})}
+ if(active?.id!=='sdBrowser')sdViewOpen=false;
  el('overview').hidden=!!active;el('taskBar').hidden=!active;
  for(const section of document.querySelectorAll('.settings-content>fieldset'))section.classList.toggle('outside-category',section!==active);
  el('restartActions').hidden=!['wifi','service','llmSettings','speechSettings'].includes(active?.id);
@@ -547,8 +588,8 @@ function refreshTrackButtons(){
  renderFavorites();
  for(const row of document.querySelectorAll('#searchHits [data-track],#sdEntries [data-track]')){
   const path=row.dataset.track,browser=row.dataset.browser==='true';
-  row.replaceChildren(document.createTextNode(browser?path.split('/').pop():path));
-  addTrack(row,path,browser);if(browser)addFileControls(row,path,false);
+  row.replaceChildren();if(!browser)row.append(path);
+  addTrack(row,path,browser);
  }
 }
 async function searchMusic(more){
@@ -758,6 +799,20 @@ function addFileControls(row,path,directory){
  row.append(group);
 }
 let sdPath='', sdNext=0, sdGeneration=0;
+function renderCardPath(path){
+ const nav=el('sdPath');nav.replaceChildren();
+ function crumb(name,target,label){
+  const button=document.createElement('button');button.type='button';button.textContent=name;
+  button.setAttribute('aria-label',label);button.onclick=()=>browseCard(target);nav.append(button);
+ }
+ crumb('/','','SD 卡根目录');
+ let target='';
+ for(const name of path.split('/').filter(Boolean)){
+  if(target)nav.append('/');
+  target=cardPath(target,name);crumb(name,target,name);
+ }
+ nav.lastElementChild.setAttribute('aria-current','location');
+}
 async function browseCard(path,cursor=0){
  const generation=++sdGeneration;
  el('sdStatus').textContent='正在读取…';
@@ -767,17 +822,26 @@ async function browseCard(path,cursor=0){
   const page=await response.json();
   if(generation!==sdGeneration)return;
   sdPath=path;sdNext=page.next;el('pickDirectory').hidden=false;
-  el('sdPath').textContent='/'+path;el('sdUp').hidden=!path;
+  renderCardPath(path);el('sdUp').hidden=!path;
   const list=el('sdEntries');
   if(!cursor)list.replaceChildren();
   for(const entry of page.entries){
    const row=document.createElement('li');
+   const badge=document.createElement('span');badge.className='file-kind';
+   const ext=entry.name.match(/\.([a-z0-9]{1,5})$/i)?.[1];
+   const audio=ext?.toLowerCase()==='mp3';
+   const symbol=entry.directory?'cardFolder':audio?'cardAudio':'cardFile';
+   badge.classList.add(entry.directory?'folder':audio?'audio':'document');
+   badge.innerHTML='<svg aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"><use href="#'+symbol+'"/></svg>';
+   const type=document.createElement('span');type.className='file-type';
+   type.textContent=entry.directory?'文件夹':audio?'MP3 音频':ext?ext.toUpperCase()+' 文件':'文件';
+   row.append(badge,type);
    if(entry.directory){
     const button=document.createElement('button');button.type='button';button.textContent=entry.name+'/';
     button.onclick=()=>browseCard([path,entry.name].filter(Boolean).join('/'));row.append(button);
    }else{
-    row.textContent=entry.name;
-    if(/\.mp3$/i.test(entry.name))addTrack(row,[path,entry.name].filter(Boolean).join('/'),true);
+    const name=document.createElement('span');name.className='file-name';name.textContent=entry.name;row.append(name);
+    if(/\.mp3$/i.test(entry.name)){const actions=document.createElement('div');row.append(actions);addTrack(actions,cardPath(path,entry.name),true)}
    }
    addFileControls(row,cardPath(path,entry.name),entry.directory);list.append(row);
   }
@@ -817,7 +881,7 @@ async function load(){
    el('chapterStop').checked=data.media.chapter_stop;
   }
   el('checklist').hidden=!Array.isArray(data.checklist);el('checkItems').value=(data.checklist||[]).join('\n');
-  el('sdBrowser').hidden=!data.sd_browser;manageCard=data.sd_manage===true;el('sdTools').hidden=!manageCard;el('sdPath').textContent='/'+sdPath;
+  el('sdBrowser').hidden=!data.sd_browser;manageCard=data.sd_manage===true;el('cardWriteTools').hidden=el('sdTools').hidden=!manageCard;renderCardPath(sdPath);
   el('autoUpdateOption').hidden=typeof data.auto_update!=='boolean';el('autoUpdate').checked=data.auto_update===true;
   el('updateSource').hidden=typeof data.update_url!=='string';el('updateUrl').value=data.update_url||'';
   el('factoryReset').hidden=data.factory_reset!==true;
@@ -862,7 +926,63 @@ async function load(){
 }
 function saverEditor(path,suffix){
  const field=id=>el(id+suffix);
- let imageBits=null,revision=0;
+ let imageBits=null,tones=null,source=null,revision=0;
+ function discardSource(){
+  source=null;tones=null;field('imageTools').hidden=true;
+  field('photo').value='';field('imageLight').value='0';field('imageStyle').value='photo';
+ }
+ function frameSource(){
+  if(!source)return;
+  const cover=field('imageFit').value==='cover';
+  const w=source.naturalWidth,h=source.naturalHeight,side=Math.min(w,h);
+  const position=Number(field('cropPosition').value)/100;
+  field('cropControl').hidden=!cover||w===h;
+  field('cropAxis').textContent=w>h?'左右取景':'上下取景';
+  const ctx=field('preview').getContext('2d');
+  ctx.fillStyle='white';ctx.fillRect(0,0,200,200);
+  ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';
+  if(cover){
+   ctx.drawImage(source,(w-side)*position,(h-side)*position,side,side,0,0,200,200);
+  }else{
+   const scale=200/Math.max(w,h);
+   ctx.drawImage(source,(200-w*scale)/2,(200-h*scale)/2,w*scale,h*scale);
+  }
+  const rgba=ctx.getImageData(0,0,200,200).data;
+  tones=new Uint8Array(40000);
+  for(let i=0;i<tones.length;i++){
+   tones[i]=Math.round((rgba[i*4]*299+rgba[i*4+1]*587+rgba[i*4+2]*114)/1000);
+  }
+  renderSource();
+ }
+ field('imageFit').onchange=field('cropPosition').oninput=frameSource;
+ function renderSource(){
+  if(!tones)return;
+  const photo=field('imageStyle').value==='photo',light=Number(field('imageLight').value);
+  const bits=new Uint8Array(5000),errors=new Float32Array(40000);
+  for(let y=0;y<200;y++){
+   const step=y%2?-1:1;
+   for(let col=0;col<200;col++){
+    const x=step===1?col:199-col,i=y*200+x;
+    const gray=tones[i];
+    const adjustment=light*(1-Math.abs(2*gray/255-1));
+    const tone=Math.max(0,Math.min(255,(gray-128)*1.12+128+adjustment));
+    const value=tone+errors[i],black=value<128;
+    if(black)bits[i>>3]|=128>>(i%8);
+    if(!photo)continue;
+    // Serpentine Floyd–Steinberg diffusion avoids a repeating threshold grid.
+    const error=(value-(black?0:255))/16;
+    if(col<199)errors[i+step]+=7*error;
+    if(y<199){
+     if(col>0)errors[i+200-step]+=3*error;
+     errors[i+200]+=5*error;
+     if(col<199)errors[i+200+step]+=error;
+    }
+   }
+  }
+  imageBits=bits;paintBits(bits);field('applyImage').disabled=false;
+  field('imageStatus').textContent='预览已生成，保存后生效。';
+ }
+ field('imageLight').oninput=field('imageStyle').onchange=renderSource;
  function paintBits(bits){
   const canvas=field('preview'),ctx=canvas.getContext('2d'),frame=ctx.createImageData(200,200);
   for(let i=0;i<40000;i++){
@@ -879,6 +999,7 @@ function saverEditor(path,suffix){
  }
  async function loadImage(){
   const current=++revision;
+  discardSource();imageBits=null;field('applyImage').disabled=true;
   const file=field('photo');file.disabled=true;
   field('clearImage').disabled=true;
   try{
@@ -898,28 +1019,20 @@ function saverEditor(path,suffix){
  field('photo').onchange=async()=>{
   const file=field('photo').files[0];if(!file)return;
   const current=++revision;
-  field('applyImage').disabled=true;imageBits=null;
+  field('applyImage').disabled=true;imageBits=null;source=null;tones=null;field('imageTools').hidden=true;
   const url=URL.createObjectURL(file);
   try{
    const img=new Image();img.src=url;await img.decode();if(current!==revision)return;
-   const canvas=field('preview'),ctx=canvas.getContext('2d');
-   ctx.fillStyle='white';ctx.fillRect(0,0,200,200);
-   const scale=Math.min(200/img.width,200/img.height);
-   ctx.drawImage(img,(200-img.width*scale)/2,(200-img.height*scale)/2,img.width*scale,img.height*scale);
-   const rgba=ctx.getImageData(0,0,200,200).data,bits=new Uint8Array(5000);
-   const bayer=[0,8,2,10,12,4,14,6,3,11,1,9,15,7,13,5];
-   for(let i=0;i<40000;i++){
-    const grey=(rgba[i*4]*299+rgba[i*4+1]*587+rgba[i*4+2]*114)/1000;
-    if(grey<bayer[(Math.floor(i/200)%4)*4+i%4]*16+8)bits[i>>3]|=128>>(i%8);
-   }
-   imageBits=bits;paintBits(bits);field('applyImage').disabled=false;
-   field('imageStatus').textContent='预览已生成，保存后生效。';
+   source=img;field('imageFit').value='contain';field('cropPosition').value='50';
+   field('imageLight').value='0';field('imageStyle').value='photo';
+   field('imageTools').hidden=false;frameSource();
   }catch{field('imageStatus').textContent='图片无法读取，请选择其他图片。'}
   finally{URL.revokeObjectURL(url)}
  };
  async function saveImage(clear){
   const current=revision;
   const apply=field('applyImage'),remove=field('clearImage'),file=field('photo');
+  field('imageFit').disabled=field('cropPosition').disabled=field('imageLight').disabled=field('imageStyle').disabled=true;
   apply.disabled=remove.disabled=file.disabled=true;
   try{
    const r=await deviceRequest(path,{method:'POST',headers:{'Content-Type':'application/octet-stream'},body:clear?new Uint8Array():imageBits});
@@ -928,12 +1041,12 @@ function saverEditor(path,suffix){
    imageBits=null;field('imageStatus').textContent=msg;
    if(clear){file.value='';await loadImage()}else updateHomeFrame();
   }catch(e){if(current===revision)field('imageStatus').textContent=e.message}
-  finally{if(current===revision){remove.disabled=file.disabled=false;apply.disabled=!imageBits}}
+  finally{field('imageFit').disabled=field('cropPosition').disabled=field('imageLight').disabled=field('imageStyle').disabled=false;if(current===revision){remove.disabled=file.disabled=false;apply.disabled=!imageBits}}
  }
  field('applyImage').onclick=()=>saveImage(false);
  field('clearImage').onclick=()=>saveImage(true);
  return {load:loadImage,reset(){
-  ++revision;imageBits=null;field('preview').hidden=true;field('applyImage').disabled=true;field('imageStatus').textContent='';
+  ++revision;discardSource();imageBits=null;field('preview').hidden=true;field('applyImage').disabled=true;field('imageStatus').textContent='';
  }};
 }
 const saverEditors=[saverEditor('/saver',''),saverEditor('/shutdown-saver','Off')];
