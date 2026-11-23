@@ -170,6 +170,14 @@ PROBE = """<script>
         byId('save').click();
         await wait(() => byId('status').textContent === '已保存');
         check(byId('save').disabled, 'Duplicate save possible during reboot');
+        if(typeof pairedAccess!=='undefined' && pairedAccess){
+            byId('disconnect').click();
+            check(byId('settings').hidden && !byId('reconnect').hidden,'Missing manual reconnect');
+            check(localStorage.getItem('quack.pausedDevice')==='test-unit','Manual disconnect not remembered');
+            byId('reconnect').click();
+            await wait(()=>!byId('settings').hidden);
+            check(!localStorage.getItem('quack.pausedDevice'),'Manual reconnect did not resume');
+        }
         await fetch('/result', {method: 'POST', body: 'PASS'});
     } catch (error) {
         await fetch('/result', {method: 'POST', body: String(error)});
@@ -218,10 +226,18 @@ const characteristicMock={
         return new DataView(frame.buffer);
     }
 };
-Object.defineProperty(navigator,'bluetooth',{value:{requestDevice:async()=>({
-    name:'Omni-test',id:'test-unit',addEventListener(){},
-    gatt:{connect:async()=>({getPrimaryService:async()=>({getCharacteristic:async()=>characteristicMock})})}
-})}});
+const mockDevice=Object.assign(new EventTarget(),{
+    name:'Omni-test',id:'test-unit',
+    gatt:{
+        connect:async()=>{route=undefined;return {getPrimaryService:async()=>({getCharacteristic:async()=>characteristicMock})}},
+        disconnect:()=>mockDevice.dispatchEvent(new Event('gattserverdisconnected'))
+    }
+});
+if(pairedAccess)localStorage.setItem('quack.lastDevice',mockDevice.id);
+Object.defineProperty(navigator,'bluetooth',{value:{
+    requestDevice:async()=>{if(pairedAccess)throw Error('Unexpected chooser');return mockDevice},
+    getDevices:async()=>[mockDevice]
+}});
 </script>"""
 
 @unittest.skipUnless(shutil.which("firefox"), "Firefox is required for the setup page test")
@@ -243,7 +259,8 @@ class PhoneSetup(unittest.TestCase):
         if bluetooth:
             page = page.replace('const sitePageUrl=new URL(location.href)', "const sitePageUrl=new URL('https://site.test/pocket/index.html?test=1')")
             page = page.replace('<script>', BLUETOOTH.replace('PAIRED_ACCESS',str(paired).lower()) + '<script>', 1)
-            page = page.replace('</html>', "<script>document.getElementById('connect').click()</script></html>")
+            if not paired:
+                page = page.replace('</html>', "<script>document.getElementById('connect').click()</script></html>")
         elif lan:
             page = page.replace('<head>', "<head><meta name='quack-transport' content='lan'><meta name='quack-unit' content='test'>")
         else:
