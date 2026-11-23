@@ -332,6 +332,16 @@ OfflineCommand ListenOffline(const std::function<bool()>& cancelled) {
             return {};
         }
     }
+    // Preserve existing command IDs and any user-defined pronunciation.
+    const int story_id = words.size() + 1;
+    auto add_alias = [&](const char* phrase, int id) {
+        for (const auto& word : words) if (word.phrase == phrase) return true;
+        return esp_mn_commands_add(id, phrase) == ESP_OK;
+    };
+    if (!add_alias("bo fang yin yue", 1) || !add_alias("bo fang gu shi", story_id)) {
+        Message("无法加载默认播放口令");
+        return {};
+    }
     if (esp_mn_commands_update()) {
         Message("模型无法识别词表，请检查口令拼音");
         return {};
@@ -349,6 +359,7 @@ OfflineCommand ListenOffline(const std::function<bool()>& cancelled) {
         if (engine->detect(model, frame.data()) == ESP_MN_STATE_DETECTED) {
             auto result = engine->get_results(model);
             int id = result && result->num ? result->command_id[0] - 1 : -1;
+            if (id == story_id - 1) return {id, {}};
             if (id >= 0 && static_cast<size_t>(id) < words.size()) return {id, words[id].song};
         }
     }

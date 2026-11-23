@@ -43,6 +43,8 @@ int main() {
     assert(!voice_control::ToolEnabled("self.music.control"));
     read_failure = false;
     assert(voice_control::Find("技能0", match) && match.song == "晴天");
+    assert(voice_control::Find("播放音乐", match) && !match.story && match.song.empty());
+    assert(voice_control::Find("播放故事", match) && match.story && match.song.empty());
     auto warm_reads = reads;
     assert(voice_control::Find("技能59", match) && match.volume == 59);
     assert(!voice_control::Find("不存在", match));
@@ -50,6 +52,7 @@ int main() {
     cJSON_ReplaceItemInObject(policy.get(), "music", cJSON_CreateFalse());
     assert(voice_control::Save(policy.get()));
     assert(!voice_control::Find("技能0", match));
+    assert(!voice_control::Find("播放故事", match));
     assert(!voice_control::ToolEnabled("self.music.control"));
     assert(voice_control::Find("技能59", match));
     auto previous = stored;

@@ -85,7 +85,7 @@ private:
         }
         return true;
     }
-    enum MenuItem { Play, Next, Sequential, Shuffle, VolumeDown, VolumeUp, Refresh, Story, Favorites,
+    enum MenuItem { Play, Next, Sequential, Shuffle, VolumeDown, VolumeUp, Refresh, Favorites, MusicPick, MusicSleep, MusicRepeat, Story, StoryPick, StorySleep, StoryRepeat,
                     Chat, VoiceService, OfflineVoice, InstallModel, WakeSetting, RecordMemo, HearMemo,
                     Phone, LanSetup, WifiToggle, Bluetooth, Trusted, StandbyTimeout, Update, AutoUpdate, Help, Checklist, ItemCount };
     struct MenuEntry { const char* title; const char* icon; };
@@ -93,7 +93,9 @@ private:
         {"播放 / 暂停", FONT_AWESOME_MUSIC}, {"下一首", FONT_AWESOME_FORWARD_STEP},
         {"顺序播放", FONT_AWESOME_ARROWS_REPEAT}, {"随机播放", FONT_AWESOME_MUSIC},
         {"调小音量", FONT_AWESOME_VOLUME_LOW}, {"调大音量", FONT_AWESOME_VOLUME_HIGH},
-        {"刷新曲库", FONT_AWESOME_ARROWS_ROTATE}, {"继续听故事", FONT_AWESOME_MUSIC}, {"我的收藏", FONT_AWESOME_HEART},
+        {"刷新曲库", FONT_AWESOME_ARROWS_ROTATE}, {"我的收藏", FONT_AWESOME_HEART},
+        {"选音乐", FONT_AWESOME_MUSIC}, {"睡眠定时", FONT_AWESOME_CLOCK}, {"循环播放", FONT_AWESOME_ARROWS_REPEAT},
+        {"继续听", FONT_AWESOME_MUSIC}, {"选故事", FONT_AWESOME_MUSIC}, {"睡眠定时", FONT_AWESOME_CLOCK}, {"循环播放", FONT_AWESOME_ARROWS_REPEAT},
         {"语音通话", FONT_AWESOME_PHONE}, {"切换语音服务", FONT_AWESOME_COMMENT}, {"说一句音乐口令", FONT_AWESOME_MICROPHONE},
         {"安装离线模型", FONT_AWESOME_DOWNLOAD}, {"语音唤醒", FONT_AWESOME_MICROPHONE}, {"录一条留言", FONT_AWESOME_MICROPHONE}, {"听最近留言", FONT_AWESOME_COMMENT},
         {"手机配网与模型", FONT_AWESOME_WIFI}, {"同网扫码管理", FONT_AWESOME_WIFI},
@@ -102,13 +104,241 @@ private:
     };
     struct MenuGroup { const char* title; const char* icon; const char* hint; MenuItem first, last; };
     static constexpr MenuGroup groups_[] = {
-        {"音乐播放", FONT_AWESOME_MUSIC, "播放 · 音量 · 曲库", Play, Favorites},
+        {"音乐播放", FONT_AWESOME_MUSIC, "选歌 · 定时 · 循环", Play, MusicRepeat},
+        {"故事", FONT_AWESOME_MUSIC, "续播 · 选书 · 定时", Story, StoryRepeat},
         {"语音互动", FONT_AWESOME_MICROPHONE, "对话 · 口令 · 唤醒", Chat, HearMemo},
         {"手机与网络", FONT_AWESOME_WIFI, "配网 · 扫码 · 授权", Phone, Trusted},
         {"设备设置", FONT_AWESOME_GEAR, "待机 · 更新 · 帮助", StandbyTimeout, Checklist}
     };
 
+    enum class MediaPage { Closed, Books, Book, Chapters, Songs, Timer };
+    std::atomic<bool> media_loading_{false};
+    MediaPage media_page_ = MediaPage::Closed;
+    size_t media_cursor_ = 0, book_cursor_ = 0;
+    std::vector<std::string> story_books_, story_chapters_, songs_;
+    uint32_t song_offset_ = 0, song_total_ = 0, requested_song_ = 0;
+    MediaPage loading_page_ = MediaPage::Closed;
+
+    static std::string FileName(const std::string& path) {
+        return path.substr(path.rfind('/') + 1);
+    }
+
+    static std::string BookName(const std::string& book) {
+        return book.empty() ? "SD 卡根目录" : FileName(book);
+    }
+
+    std::string LatestStory() {
+        auto mark = pocket_media::LatestStoryBookmark();
+        auto path = pocket_media::Text(mark.get(), "path");
+        auto root = pocket_media::Config().stories;
+        return root.empty() || path.starts_with(root + "/") ? path : "";
+    }
+
+    void RenderMediaPage() {
+        std::string title, detail, header;
+        switch (media_page_) {
+            case MediaPage::Books:
+                header = "选故事";
+                title = BookName(story_books_[media_cursor_]);
+                detail = std::to_string(media_cursor_ + 1) + "/" + std::to_string(story_books_.size());
+                break;
+            case MediaPage::Book: {
+                static constexpr const char* actions[] = {"从上次位置播放", "从头播放", "选章节"};
+                auto& book = story_books_[book_cursor_];
+                header = "故事";
+                title = actions[media_cursor_];
+                detail = BookName(book);
+                break;
+            }
+            case MediaPage::Chapters:
+                header = "选章节";
+                title = FileName(story_chapters_[media_cursor_]);
+                detail = std::to_string(media_cursor_ + 1) + "/" + std::to_string(story_chapters_.size());
+                break;
+            case MediaPage::Songs:
+                header = "选音乐";
+                title = FileName(songs_[media_cursor_]);
+                detail = std::to_string(song_offset_ + media_cursor_ + 1) + "/" + std::to_string(song_total_);
+                break;
+            case MediaPage::Timer: {
+                header = "睡眠定时";
+                bool music = item_ == MusicSleep;
+                if (media_cursor_ == 0) {
+                    int minutes = music ? pocket_media::PlaybackOptions().music_minutes : pocket_media::Config().minutes;
+                    title = "分钟定时";
+                    detail = minutes ? std::to_string(minutes) + " 分钟 · 确认更改" : "关闭 · 确认更改";
+                } else {
+                    bool stop = music ? pocket_media::PlaybackOptions().track_stop : pocket_media::Config().chapter_stop;
+                    title = music ? "播完本曲停止" : "播完本章停止";
+                    detail = stop ? "已开启 · 确认关闭" : "已关闭 · 确认开启";
+                }
+                break;
+            }
+            case MediaPage::Closed: return;
+        }
+        if (media_page_ == MediaPage::Songs)
+            display_->ShowMenu(header, FONT_AWESOME_MUSIC, title.c_str(), detail, "电源键 选曲 · 确认键三击翻页");
+        else display_->ShowMenu(header, FONT_AWESOME_MUSIC, title.c_str(), detail);
+    }
+
+    void OpenMediaCatalog(MediaPage page, uint32_t song = 0) {
+        if (media_loading_.exchange(true)) return;
+        loading_page_ = page;
+        requested_song_ = song;
+        display_->ShowMenu(page == MediaPage::Songs ? "选音乐" : "故事", FONT_AWESOME_MUSIC, "正在读取曲库", "");
+        if (xTaskCreate([](void* context) {
+                auto* board = static_cast<CustomBoard*>(context);
+                board->LoadMediaCatalog();
+                board->media_loading_ = false;
+                vTaskDelete(nullptr);
+            }, "media_catalog", 6144, this, 3, nullptr) != pdPASS) {
+            if (media_page_ == MediaPage::Closed) RenderMenu();
+            else RenderMediaPage();
+            display_->ShowVoiceHint("内存不足，无法打开曲库", 3500);
+            media_loading_ = false;
+        }
+    }
+
+    void LoadMediaCatalog() {
+        std::optional<std::string> error;
+        size_t cursor = 0;
+        if (loading_page_ == MediaPage::Songs) {
+            uint32_t offset = requested_song_ / pocket_library::MusicPageSize * pocket_library::MusicPageSize;
+            uint32_t total;
+            std::vector<std::string> songs;
+            error = pocket_library::MusicCatalog(offset, total, songs);
+            if (!error) {
+                song_offset_ = offset;
+                song_total_ = total;
+                cursor = std::min(requested_song_, total - 1) - offset;
+                songs_ = std::move(songs);
+            }
+        } else if (loading_page_ == MediaPage::Chapters) {
+            error = pocket_library::StoryCatalog(&story_books_[book_cursor_], story_chapters_);
+        } else {
+            error = pocket_library::StoryCatalog(nullptr, story_books_);
+        }
+        if (!error) {
+            media_cursor_ = cursor;
+            media_page_ = loading_page_;
+        }
+        if (media_page_ == MediaPage::Closed) RenderMenu();
+        else RenderMediaPage();
+        if (error) display_->ShowVoiceHint(error->c_str(), 3500);
+    }
+
+    void PlayFromMenu(MusicAction action, const std::string& path = {}) {
+        if (!RequestMusicFromButton(action, path.c_str())) return;
+        media_page_ = MediaPage::Closed;
+        story_books_.clear();
+        story_chapters_.clear();
+        songs_.clear();
+        menu_open_ = false;
+        display_->CloseMenu();
+    }
+
+    static int NextTimerMinutes(int current) {
+        static constexpr int minutes[] = {0, 5, 10, 15, 20, 30, 45, 60, 90, 120, 180};
+        auto next = std::upper_bound(std::begin(minutes), std::end(minutes), current);
+        return next == std::end(minutes) ? 0 : *next;
+    }
+
+    void SavePlaybackSettings() {
+        bool saved;
+        {
+            std::lock_guard<std::mutex> guard(pocket_media::lock);
+            if (item_ == StorySleep) {
+                pocket_media::Config config;
+                if (media_cursor_ == 0) config.minutes = NextTimerMinutes(config.minutes);
+                else config.chapter_stop = !config.chapter_stop;
+                pocket_media::Json data(cJSON_CreateObject(), cJSON_Delete);
+                config.Export(data.get());
+                saved = pocket_media::Save("config", data.get());
+            } else {
+                using pocket_media::Repeat;
+                pocket_media::PlaybackOptions options;
+                if (item_ == MusicSleep) {
+                    if (media_cursor_ == 0) options.music_minutes = NextTimerMinutes(options.music_minutes);
+                    else options.track_stop = !options.track_stop;
+                } else {
+                    auto& repeat = item_ == MusicRepeat ? options.music_repeat : options.story_repeat;
+                    repeat = repeat == Repeat::Off ? Repeat::All : repeat == Repeat::All ? Repeat::One : Repeat::Off;
+                }
+                saved = options.Save();
+            }
+        }
+        if (saved) RequestMusicFromButton(MusicAction::PlaybackSettings);
+        if (media_page_ == MediaPage::Timer) RenderMediaPage();
+        else RenderMenu();
+        if (!saved) display_->ShowVoiceHint("保存播放设置失败", 3500);
+    }
+
+    void SelectMediaPage() {
+        switch (media_page_) {
+            case MediaPage::Books:
+                book_cursor_ = media_cursor_;
+                media_cursor_ = 0;
+                media_page_ = MediaPage::Book;
+                RenderMediaPage();
+                break;
+            case MediaPage::Book: {
+                auto& book = story_books_[book_cursor_];
+                if (media_cursor_ == 2) OpenMediaCatalog(MediaPage::Chapters);
+                else PlayFromMenu(media_cursor_ == 0 ? MusicAction::StoryBook : MusicAction::StoryRestart, book);
+                break;
+            }
+            case MediaPage::Chapters: PlayFromMenu(MusicAction::StoryChapter, story_chapters_[media_cursor_]); break;
+            case MediaPage::Songs: PlayFromMenu(MusicAction::PlayFile, songs_[media_cursor_]); break;
+            case MediaPage::Timer: SavePlaybackSettings(); break;
+            case MediaPage::Closed: break;
+        }
+    }
+
+    bool BackFromMediaPage() {
+        if (media_loading_) return true;
+        switch (media_page_) {
+            case MediaPage::Chapters:
+                media_page_ = MediaPage::Book;
+                story_chapters_.clear();
+                media_cursor_ = 2;
+                break;
+            case MediaPage::Book:
+                media_page_ = MediaPage::Books;
+                media_cursor_ = book_cursor_;
+                break;
+            case MediaPage::Books:
+            case MediaPage::Songs:
+            case MediaPage::Timer:
+                media_page_ = MediaPage::Closed;
+                story_books_.clear();
+                songs_.clear();
+                RenderMenu();
+                return true;
+            case MediaPage::Closed: return false;
+        }
+        RenderMediaPage();
+        return true;
+    }
+
     void MoveMenu(bool previous) {
+        if (media_loading_) return;
+        if (media_page_ == MediaPage::Songs) {
+            uint32_t current = song_offset_ + media_cursor_;
+            uint32_t next = previous ? (current ? current - 1 : song_total_ - 1) : (current + 1) % song_total_;
+            if (next < song_offset_ || next >= song_offset_ + songs_.size()) OpenMediaCatalog(MediaPage::Songs, next);
+            else {
+                media_cursor_ = next - song_offset_;
+                RenderMediaPage();
+            }
+            return;
+        }
+        if (media_page_ != MediaPage::Closed) {
+            size_t count = media_page_ == MediaPage::Books ? story_books_.size() :
+                media_page_ == MediaPage::Chapters ? story_chapters_.size() : media_page_ == MediaPage::Book ? 3 : 2;
+            media_cursor_ = (media_cursor_ + (previous ? count - 1 : 1)) % count;
+            RenderMediaPage();
+            return;
+        }
         const auto& group = groups_[group_];
         size_t first = in_group_ ? static_cast<size_t>(group.first) : 0;
         size_t count = in_group_ ? group.last - group.first + 1 : std::size(groups_);
@@ -214,6 +444,20 @@ private:
         if (item_ == StandbyTimeout) detail = standby::configured_minutes ?
             std::to_string(standby::configured_minutes.load()) + (Settings("omni_ui").GetInt("wake", 1) ? " 分钟 · 确认更改" : " 分钟 · 需开语音唤醒") : "关闭 · 确认更改";
         if (item_ == AutoUpdate) detail = pocket_update::AutomaticChecks() ? "已开启 · 确认键 关闭" : "已关闭 · 确认键 开启";
+        if (item_ == MusicRepeat || item_ == StoryRepeat) {
+            using pocket_media::Repeat;
+            pocket_media::PlaybackOptions options;
+            bool music = item_ == MusicRepeat;
+            auto repeat = music ? options.music_repeat : options.story_repeat;
+            detail = repeat == Repeat::All ? (music ? "列表循环" : "整本循环") :
+                repeat == Repeat::One ? (music ? "单曲循环" : "单章循环") : "关闭";
+            bool stop = music ? options.track_stop : pocket_media::Config().chapter_stop;
+            if (repeat != Repeat::Off && stop) detail += music ? " · 曲末会停" : " · 章末会停";
+        }
+        if (item_ == Story) {
+            auto path = LatestStory();
+            detail = path.empty() ? "暂无进度 · 确认选书" : BookName(pocket_media::StoryBook(path)) + " · " + FileName(path);
+        }
         if (item_ == Update) detail = std::string("当前版本 ") + esp_app_get_description()->version;
         display_->ShowMenu(header, items_[item_].icon, title, detail);
     }
@@ -408,10 +652,26 @@ private:
     }
 
     void SelectItem() {
+        if (media_loading_) return;
+        if (media_page_ != MediaPage::Closed) { SelectMediaPage(); return; }
         if (!in_group_) {
             in_group_ = true;
             item_ = groups_[group_].first;
             RenderMenu();
+            return;
+        }
+        if (item_ == Story) {
+            if (LatestStory().empty()) OpenMediaCatalog(MediaPage::Books);
+            else PlayFromMenu(MusicAction::Story);
+            return;
+        }
+        if (item_ == StoryPick) { OpenMediaCatalog(MediaPage::Books); return; }
+        if (item_ == MusicPick) { OpenMediaCatalog(MediaPage::Songs); return; }
+        if (item_ == MusicRepeat || item_ == StoryRepeat) { SavePlaybackSettings(); return; }
+        if (item_ == MusicSleep || item_ == StorySleep) {
+            media_page_ = MediaPage::Timer;
+            media_cursor_ = 0;
+            RenderMediaPage();
             return;
         }
         if (item_ == Favorites) { favorite_index_ = 0; FavoritePage(false,false); return; }
@@ -469,7 +729,6 @@ private:
             }
             case RecordMemo: RequestMusicFromButton(MusicAction::RecordMemo); break;
             case HearMemo: RequestMusicFromButton(MusicAction::HearMemo); break;
-            case Story: RequestMusicFromButton(MusicAction::Story); break;
             case Play: RequestMusicFromButton(MusicAction::Toggle); break;
             case Next: RequestMusicFromButton(MusicAction::Next); break;
             case Sequential: RequestMusicFromButton(MusicAction::Sequential); break;
@@ -653,12 +912,14 @@ private:
         ESP_ERROR_CHECK(i2c_new_master_bus(&i2c_bus_cfg, &i2c_bus_));
     }
 
-    void RequestMusicFromButton(MusicAction action) {
-        if (!music_.Request(action)) {
+    bool RequestMusicFromButton(MusicAction action, const char* path = "") {
+        if (!music_.Request(action, path)) {
             Application::GetInstance().Schedule([this]() {
                 display_->ShowNotification("播放器未就绪或正忙，请稍后再按");
             });
+            return false;
         }
+        return true;
     }
 
     void InitializeButtons() { 
@@ -711,6 +972,7 @@ private:
         boot_button_.OnLongPress([this]() {
             if (PhoneSetupActive()) return;
             if (!AcceptUserAction()) return;
+            if (BackFromMediaPage()) return;
             if (favorite_index_ >= 0) { favorite_index_=-1; RenderMenu(); return; }
             if (checklist_index_ >= 0) { checklist_index_=-1; RenderMenu(); return; }
             if (lan_switching_) return;
@@ -727,7 +989,14 @@ private:
             if (PhoneSetupActive()) return;
             if (lan_option_ >= 0 || peer_index_ >= 0 || favorite_index_ >= 0 || checklist_index_ >= 0) return;
             if (!AcceptUserAction()) return;
-            if (guide_page_ < 0 && !menu_open_) RequestMusicFromButton(MusicAction::Refresh); }, 3);
+            if (media_loading_) return;
+            if (menu_open_ && media_page_ == MediaPage::Songs && song_total_ > pocket_library::MusicPageSize) {
+                uint32_t next = song_offset_ + pocket_library::MusicPageSize;
+                OpenMediaCatalog(MediaPage::Songs, next < song_total_ ? next : 0);
+            } else if (guide_page_ < 0 && !menu_open_) {
+                RequestMusicFromButton(MusicAction::Refresh);
+            }
+        }, 3);
 
         pwr_button_.OnLongPress([this]() {
             if (!AcceptUserAction()) return;
@@ -762,17 +1031,19 @@ private:
                 if (queued) Application::GetInstance().FinishChatForMusic();
                 return queued;
             });
-        mcp_server.AddTool("self.music.control", "音乐控制，action 可为 sequential 顺序播放、shuffle 随机播放、next 下一首或 stop 停止。",
-            PropertyList({ Property("action", kPropertyTypeString) }),
+        mcp_server.AddTool("self.music.control", "音乐控制，未指定曲目时用 resume_music 续播音乐，resume_story 续播故事；点播故事时配合 path 指定章节。其他 action 有 sequential 顺序播放、shuffle 随机播放、next 下一首或 stop 停止。",
+            PropertyList({ Property("action", kPropertyTypeString), Property("path", kPropertyTypeString, std::string()) }),
             [this](const PropertyList& properties) -> ReturnValue {
                 auto action = properties["action"].value<std::string>();
                 MusicAction command;
-                if (action == "sequential") command = MusicAction::Sequential;
+                if (action == "resume_music") command = MusicAction::Play;
+                else if (action == "resume_story") command = MusicAction::Story;
+                else if (action == "sequential") command = MusicAction::Sequential;
                 else if (action == "shuffle") command = MusicAction::Shuffle;
                 else if (action == "next") command = MusicAction::Next;
                 else if (action == "stop") command = MusicAction::Stop;
                 else return false;
-                bool queued = music_.Request(command);
+                bool queued = music_.Request(command, command == MusicAction::Story ? properties["path"].value<std::string>().c_str() : "");
                 if (queued && command != MusicAction::Stop) Application::GetInstance().FinishChatForMusic();
                 return queued;
             });
@@ -888,7 +1159,7 @@ public:
             codec->SetOutputVolume(match.volume >= 0 ? match.volume : std::min(100, codec->output_volume()+10));
         }
         if (match.group == voice_control::Group::Music &&
-            (match.song.empty() ? music_.Request(MusicAction::Sequential) : music_.Request(MusicAction::PlayFile,match.song.c_str())))
+            music_.Request(match.story ? MusicAction::Story : match.song.empty() ? MusicAction::Play : MusicAction::PlayFile,match.song.c_str()))
             Application::GetInstance().FinishChatForMusic();
     }
 

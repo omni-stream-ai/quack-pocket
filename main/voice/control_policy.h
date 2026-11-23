@@ -44,6 +44,23 @@ inline Json Load(bool* reliable = nullptr) {
     return policy;
 }
 
+inline void AddPlaybackDefaults(cJSON* policy) {
+    auto* skills = cJSON_GetObjectItemCaseSensitive(policy,"skills");
+    for (const auto* phrase : {"播放音乐","播放故事"}) {
+        bool exists = false;
+        cJSON* skill;
+        cJSON_ArrayForEach(skill,skills) {
+            auto* name = cJSON_GetObjectItemCaseSensitive(skill,"phrase");
+            if (cJSON_IsString(name) && !strcmp(name->valuestring,phrase)) { exists = true; break; }
+        }
+        if (exists) continue;
+        auto* item = cJSON_CreateObject();
+        cJSON_AddStringToObject(item,"phrase",phrase);
+        cJSON_AddStringToObject(item,"action",!strcmp(phrase,"播放音乐") ? "music" : "story");
+        cJSON_AddItemToArray(skills,item);
+    }
+}
+
 enum class Group { Music, Volume, State, Network };
 inline constexpr const char* group_names[] = {"music","volume","state","network"};
 
@@ -51,6 +68,7 @@ struct Match {
     Group group;
     std::string song;
     int volume = -1;
+    bool story = false;
 };
 
 class RuntimePolicy {
@@ -59,6 +77,7 @@ class RuntimePolicy {
         size_t song;
         int volume;
         Group group;
+        bool story;
     };
     bool enabled_[4]{};
     std::vector<Entry> entries_;
@@ -80,7 +99,8 @@ public:
             auto action = cJSON_GetObjectItemCaseSensitive(skill, "action");
             if (!cJSON_IsString(phrase) || !cJSON_IsString(action)) continue;
             Group group;
-            if (!strcmp(action->valuestring, "music")) group = Group::Music;
+            bool story = !strcmp(action->valuestring,"story");
+            if (story || !strcmp(action->valuestring, "music")) group = Group::Music;
             else if (!strcmp(action->valuestring, "volume")) group = Group::Volume;
             else if (!strcmp(action->valuestring, "state")) group = Group::State;
             else continue;
@@ -88,7 +108,7 @@ public:
             auto arg = cJSON_GetObjectItemCaseSensitive(skill, "argument");
             entries_.push_back({Append(phrase->valuestring),
                 cJSON_IsString(arg) ? Append(arg->valuestring) : std::string::npos,
-                cJSON_IsNumber(arg) ? arg->valueint : -1, group});
+                cJSON_IsNumber(arg) ? arg->valueint : -1, group, story});
         }
         std::sort(entries_.begin(), entries_.end(), [this](const Entry& a, const Entry& b) {
             return strcmp(strings_.data()+a.phrase, strings_.data()+b.phrase) < 0;
@@ -101,7 +121,7 @@ public:
                 return key.compare(strings_.data()+entry.phrase) > 0;
             });
         if (it == entries_.end() || phrase != strings_.data()+it->phrase) return false;
-        result = {it->group, it->song == std::string::npos ? "" : strings_.data()+it->song, it->volume};
+        result = {it->group, it->song == std::string::npos ? "" : strings_.data()+it->song, it->volume,it->story};
         return true;
     }
 };
@@ -117,6 +137,7 @@ inline const RuntimePolicy& RuntimeLocked() {
             static const RuntimePolicy unavailable(nullptr);
             return unavailable;
         }
+        AddPlaybackDefaults(policy.get());
         runtime = std::make_unique<RuntimePolicy>(policy.get());
     }
     return *runtime;
@@ -145,7 +166,7 @@ inline bool Save(cJSON* policy) {
         std::string name = phrase->valuestring, value = action->valuestring;
         auto arg = cJSON_GetObjectItemCaseSensitive(skill,"argument");
         if (arg) {
-            if (value == "music") {
+            if (value == "music" || value == "story") {
                 if (!cJSON_IsString(arg) || !arg->valuestring[0] || strlen(arg->valuestring)>192) return false;
             } else if (value == "volume") {
                 if (!cJSON_IsNumber(arg) || arg->valuedouble != arg->valueint ||
@@ -153,7 +174,7 @@ inline bool Save(cJSON* policy) {
             } else return false;
         }
         if (name.empty() || name.size() > 96 || !phrases.insert(name).second ||
-            (value != "music" && value != "volume" && value != "state")) return false;
+            (value != "music" && value != "story" && value != "volume" && value != "state")) return false;
     }
     std::unique_ptr<char, decltype(&cJSON_free)> data(cJSON_PrintUnformatted(policy), cJSON_free);
     if (!data || strlen(data.get()) > max_policy_bytes) return false;

@@ -235,7 +235,9 @@ std::string WebsocketProtocol::GetHelloMessage() {
     cJSON_AddNumberToObject(root, "version", version_);
     auto profile = VoiceProfile::Load();
     if (profile.Custom()) {
-        cJSON_AddItemToObject(root,"voice_controls",voice_control::Load().release());
+        auto controls = voice_control::Load();
+        voice_control::AddPlaybackDefaults(controls.get());
+        cJSON_AddItemToObject(root,"voice_controls",controls.release());
         profile.AddModelSettings(cJSON_AddObjectToObject(root, "model_settings"));
     }
     cJSON* features = cJSON_CreateObject();

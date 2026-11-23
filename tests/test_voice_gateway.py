@@ -51,6 +51,9 @@ class MusicCommands(unittest.TestCase):
     def test_volume_and_setup(self):
         import json
         for name, args, target in (
+            ("control_music", {"action":"resume_music"}, "self.music.control"),
+            ("control_music", {"action":"resume_story"}, "self.music.control"),
+            ("control_music", {"action":"resume_story","path":"第一章"}, "self.music.control"),
             ("set_volume", {"volume": 20}, "self.audio_speaker.set_volume"),
             ("adjust_volume", {"delta": -10}, "self.audio_speaker.adjust_volume"),
             ("enter_local_mode", {}, "self.voice.enter_local_mode"),

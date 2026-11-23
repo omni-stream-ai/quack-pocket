@@ -19,7 +19,7 @@ from .opus import AudioCodec
 from .provider import Provider
 from .realtime import QwenRealtime
 
-SYSTEM = {"role": "system", "content": "你是便携语音助手。使用用户的语言简短回答。用户提到歌单或播放列表时优先使用 playlist 管理或按名称播放歌单。用户点播指定歌曲时优先调用 play_file 查找并播放存储卡上的歌曲，无需用户说明“本地”。用户只要求播放音乐而未指定歌曲时，调用 control_music 顺序播放本地曲库。"}
+SYSTEM = {"role": "system", "content": "你是便携语音助手。使用用户的语言简短回答。用户提到歌单或播放列表时优先使用 playlist 管理或按名称播放歌单。用户点播指定歌曲时优先调用 play_file 查找并播放存储卡上的歌曲，无需用户说明“本地”。用户只要求播放音乐而未指定歌曲时，调用 control_music 的 resume_music 续播。播放故事用 resume_story，未指定章节时续播，指定章节时填 path。"}
 LOG = logging.getLogger("omni.voice")
 
 
@@ -56,7 +56,7 @@ def model_settings(hello):
             raise ValueError("invalid voice skills")
         result["local_phrases"] = {s["phrase"] for s in skills if isinstance(s, dict) and
                                    isinstance(s.get("phrase"), str) and isinstance(s.get("action"), str)
-                                   and result["voice_controls"].get(s["action"])}
+                                   and result["voice_controls"].get("music" if s["action"] == "story" else s["action"])}
     return result
 
 
@@ -69,14 +69,16 @@ def music_call(call):
                 and isinstance(title, str) and len(title.encode()) <= 64 and (title.strip() or op == "list")
                 and isinstance(track, str) and len(track.encode()) < 1024 and (track.strip() or op not in ("add", "remove"))):
             return "self.music.playlist", args
-    if name == "play_file" and isinstance(args, dict) and set(args) == {"path"}:
+    song = name == "play_file" and isinstance(args, dict) and set(args) == {"path"}
+    story = name == "control_music" and isinstance(args, dict) and set(args) == {"action", "path"} and args["action"] == "resume_story"
+    if song or story:
         path = args["path"]
         if isinstance(path, str) and 0 < len(path.encode()) < 1024 and ("/" not in path or path.lower().endswith(".mp3")) and all(
             item not in ("", ".", "..") for item in path.split("/")
         ) and not any(ord(c) < 32 or c in "\\:" for c in path):
-            return "self.music.play_file", args
+            return ("self.music.play_file" if song else "self.music.control"), args
     if name == "control_music" and isinstance(args, dict) and set(args) == {"action"} and args["action"] in (
-        "sequential", "shuffle", "next", "stop"
+        "resume_music", "resume_story", "sequential", "shuffle", "next", "stop"
     ):
         return "self.music.control", args
     if name in ("set_volume", "adjust_volume") and isinstance(args, dict):

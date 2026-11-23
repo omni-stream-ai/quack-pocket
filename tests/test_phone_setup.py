@@ -84,18 +84,16 @@ PROBE = """<script>
         await wait(() => byId('standbyStatus').textContent === '待机时间已保存');
         document.querySelector('#overview a[href="#sdBrowser"]').click();
         await wait(()=>byId('sdEntries').children.length===1);
+        byId('storyMinutes').value='41'; // Unsaved story settings must stay local.
         byId('sdEntries').querySelector('.folder-use').click();
         check(byId('chosenFolder').textContent.includes('/音乐'),'Folder action should name its target');
         byId('pickDir').click();
-        check(location.hash==='#mediaConfig' && byId('musicDir').value==='音乐','Wrong folder draft');
-        document.querySelector('#overview a[href="#sdBrowser"]').click();
-        await wait(()=>!byId('sdBrowser').classList.contains('outside-category'));
+        await wait(()=>byId('sdStatus').textContent==='/音乐 已设为音乐目录');
+        check(location.hash==='#sdBrowser' && byId('musicDir').value==='音乐','Directory should save in place');
         byId('sdEntries').querySelector('li>button').click();
         await wait(()=>byId('sdPath').textContent==='/音乐');
-        byId('useCurrentFolder').click();byId('pickDir').click();byId('saveMedia').click();
-        await wait(()=>byId('mediaStatus').textContent==='目录已保存');
-        document.querySelector('#overview a[href="#sdBrowser"]').click();
-        await wait(()=>!byId('sdBrowser').classList.contains('outside-category') && byId('sdStatus').textContent!=='正在读取…');
+        byId('useCurrentFolder').click();byId('pickDir').click();
+        await wait(()=>byId('sdStatus').textContent==='/音乐 已设为音乐目录');
         byId('sdMore').click();await wait(()=>byId('sdEntries').children.length===2);
         byId('sdPath').querySelector('button').click();await wait(()=>byId('sdPath').textContent==='/');
         const named=(selector,title)=>[...document.querySelectorAll(selector)].find(b=>b.textContent===title);
@@ -137,6 +135,38 @@ PROBE = """<script>
         const folder=named('#sdEntries button','测试目录/').closest('li');
         [...folder.querySelectorAll('button')].find(b=>b.textContent==='删除').click();
         await wait(()=>!named('#sdEntries button','测试目录/'));
+        const savedAction=pocketAction,originalMedia=mediaFolders;
+        let probes=0;
+        pocketAction=async(action,fields)=>{
+            if(action==='browse_sd'||action==='search_music'){probes++;return JSON.stringify({entries:[]})}
+            return savedAction(action,fields);
+        };
+        mediaFolders={...originalMedia,stories_set:false,music_set:false};
+        location.hash='stories';await wait(()=>!byId('storyEmpty').hidden);
+        check(probes===0,'Unset story folder must not be scanned');
+        byId('storyEmpty').querySelector('button').click();
+        await wait(()=>location.hash==='#sdBrowser' && byId('sdStatus').textContent.includes('设置用途'));
+        check(byId('dirTarget').value==='storyDir' && byId('sdPath').textContent==='/','Wrong story folder picker');
+        location.hash='library';await wait(()=>!byId('musicEmpty').hidden);
+        check(probes===1 && byId('musicEmpty').textContent.includes('选择音乐目录'),'Unset music needs a scan');
+        mediaFolders={...originalMedia,music_set:true,stories_set:true};
+        await searchMusic(false);
+        byId('musicEmpty').querySelector('button').click();
+        await wait(()=>byId('sdStatus').textContent.includes('请将 MP3'));
+        check(byId('sdPath').textContent==='/音乐','Upload action opened the wrong folder');
+        location.hash='stories';await wait(()=>!byId('storyEmpty').hidden && byId('storyEmpty').textContent.includes('/故事'));
+        byId('storyEmpty').querySelector('button').click();
+        await wait(()=>byId('sdPath').textContent==='/故事');
+        pocketAction=savedAction;mediaFolders=originalMedia;
+        location.hash='stories';await wait(()=>byId('storyEntries').children.length===1);
+        check(byId('storyPath').textContent==='/故事' && byId('storyMinutes').value==='41','Stories should retain their own settings');
+        byId('saveStory').click();await wait(()=>byId('storyStatus').textContent==='故事设置已保存');
+        byId('storyEntries').querySelector('button').click();
+        await wait(()=>byId('storyStatus').textContent==='故事已播放');
+        location.hash='library';await wait(()=>byId('searchHits').children.length===10);
+        byId('moreMusic').click();await wait(()=>byId('searchHits').children.length===20);
+        byId('moreMusic').click();await wait(()=>byId('searchHits').children.length===21);
+        check(byId('moreMusic').hidden && new Set([...byId('searchHits').children].map(row=>row.dataset.track)).size===21,'Pagination lost or repeated tracks');
         byId('musicQuery').value='晴天';byId('searchMusic').click();
         await wait(()=>byId('searchHits').children.length===1);
         byId('searchHits').querySelector('button').click();
@@ -405,7 +435,7 @@ class PhoneSetup(unittest.TestCase):
                     if paired:
                         profile["voice_policy_bytes"] = 4096
                     profile["voice_controls"] = dict(music=True, volume=True, state=True, skills=[])
-                    profile.update(media=dict(music="",stories="故事",messages="留言",minutes=15,
+                    profile.update(media=dict(music="",stories="故事",stories_set=True,music_set=False,messages="留言",minutes=15,
                                               record_seconds=60,chapter_stop=True),sd_browser=True,sd_manage=True,checklist=[],favorites=[])
                     profile["offline_words"] = "播放\n暂停\n下一首\n上一首\n加音量\n降音量"
                     if Handler.reads <= 2:
@@ -496,12 +526,23 @@ class PhoneSetup(unittest.TestCase):
                             parent, _, leaf = name.rpartition("/")
                             if parent == path:
                                 page["entries"].append(dict(directory=contents is None,name=leaf))
+                        if path == "故事": page = {"entries":[{"directory":False,"name":"第一章.mp3"}]}
                         if path == "音乐":
                             page = {"entries":[{"directory":False,"name":"晴天.mp3" if not cursor else "b.txt"}]}
                             if not cursor: page["next"] = 1
                         return self.reply(200,"application/json",json.dumps(page))
                     if action == "media_config" and payload["media"]["music"] == "音乐":
-                        return self.reply(200,"text/plain","目录已保存")
+                        media = payload["media"]
+                        if media["stories"] != "故事" or media["messages"] != "留言" or media["record_seconds"] != 60:
+                            return self.reply(400,"text/plain","Unrelated settings changed")
+                        return self.reply(200,"text/plain","目录已保存" if media["minutes"] == 15 else "故事设置已保存")
+                    if action == "search_music" and not payload["query"]:
+                        cursor = payload["cursor"]
+                        page = {"entries":[f"音乐/{i}.mp3" for i in range(cursor,min(cursor+16,21))]}
+                        if cursor == 0: page["next"] = 16
+                        return self.reply(200,"application/json",json.dumps(page))
+                    if action == "play_media" and payload.get("kind") == "story" and payload["path"] == "故事/第一章.mp3":
+                        return self.reply(200,"text/plain","故事已播放")
                     if action == "search_music" and payload["query"] == "晴天":
                         return self.reply(200,"application/json",json.dumps({"entries":["音乐/晴天.mp3"]}))
                     if action == "playlist" and payload.get("operation") == "play" and payload.get("name") == "晨间":

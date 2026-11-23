@@ -11,9 +11,9 @@ MUSIC_TOOLS = [
         "name": "play_file", "description": "用户点播歌曲时优先调用此工具，按歌名查找并播放存储卡上的 MP3。path 填用户说的歌名（文件名可省略扩展名），或包含扩展名的完整相对路径。",
         "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}}},
     {"type": "function", "function": {
-        "name": "control_music", "description": "控制设备上的本地音乐播放。",
+        "name": "control_music", "description": "控制本地播放。resume_music 续播音乐，resume_story 续播故事，可用 path 点播章节。",
         "parameters": {"type": "object", "properties": {"action": {"type": "string",
-            "enum": ["sequential", "shuffle", "next", "stop"]}}, "required": ["action"]}}}
+            "enum": ["resume_music", "resume_story", "sequential", "shuffle", "next", "stop"]},"path":{"type":"string"}}, "required": ["action"]}}}
 ]
 
 
@@ -51,7 +51,7 @@ SETUP_TOOL = {"type": "function", "function": {
 
 # Keep device actions out of ordinary conversation, particularly for small models.
 _MUSIC_REQUEST = re.compile(
-    r"播放|点播|點播|点歌|點歌|放一?[首曲]|放歌|想听|想聽|听一首|聽一首|来一首|來一首|"
+    r"听故事|聽故事|续播|續播|继续听|繼續聽|播放|点播|點播|点歌|點歌|放一?[首曲]|放歌|想听|想聽|听一首|聽一首|来一首|來一首|"
     r"下一[首曲]|换一?[首歌]|換一?[首歌]|切歌|随机|隨機|顺序|順序|停止|停播|停歌|关掉音乐|關掉音樂|"
     r"\.mp3\b|\b(play|shuffle|skip|next (?:song|track)|stop (?:the )?(?:music|playback))\b",
     re.IGNORECASE,

@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cerrno>
 #include <dirent.h>
+#include <set>
 
 namespace pocket_library {
 using pocket_media::Json;
@@ -85,6 +86,56 @@ struct CardIndex {
     ~CardIndex() { music_index_close(&index); }
 };
 
+}
+
+std::optional<std::string> StoryCatalog(const std::string* book, std::vector<std::string>& entries) {
+    CardIndex card;
+    entries.clear();
+    if (!card.lease.ready) return "请插入 SD 卡";
+    if (!card.index.file) return "请先在音乐播放中刷新曲库";
+    const auto root = pocket_media::Config().stories;
+    if (book && !root.empty() && *book != root && !book->starts_with(root + "/"))
+        return "故事目录已更改，请重新选择故事";
+    uint32_t first, end;
+    if (!music_index_directory(&card.index, (book ? *book : root).c_str(), &first, &end))
+        return "曲库读取失败";
+    std::set<std::string> books;
+    char path[MUSIC_PATH_CAPACITY];
+    for (uint32_t id = first; id < end; ++id) {
+        if (!music_index_get(&card.index, id, path)) { entries.clear(); return "曲库读取失败"; }
+        auto folder = pocket_media::StoryBook(path);
+        if (!book) books.insert(std::move(folder));
+        else if (folder == *book) entries.emplace_back(path);
+        if ((id - first) % 32 == 31) vTaskDelay(1);
+    }
+    if (!book) entries.assign(books.begin(), books.end());
+    if (entries.empty()) return "故事目录没有已索引的 MP3";
+    return std::nullopt;
+}
+
+std::optional<std::string> MusicCatalog(uint32_t offset, uint32_t& total, std::vector<std::string>& entries) {
+    CardIndex card;
+    if (!card.lease.ready) return "请插入 SD 卡";
+    if (!card.index.file) return "请先在音乐播放中刷新曲库";
+    uint32_t first, end;
+    if (!music_index_directory(&card.index, pocket_media::Config().music.c_str(), &first, &end))
+        return "曲库读取失败";
+    total = end - first;
+    if (!total) return "音乐目录没有已索引的 MP3";
+    if (offset >= total) return "曲库已更新，请重新选音乐";
+    const uint32_t count = std::min(MusicPageSize, total - offset);
+    entries.clear();
+    entries.reserve(count);
+    char path[MUSIC_PATH_CAPACITY];
+    for (uint32_t i = 0; i < count; ++i) {
+        if (i && i % 16 == 0) vTaskDelay(1);
+        if (!music_index_get(&card.index, first + offset + i, path)) return "曲库读取失败";
+        entries.emplace_back(path);
+    }
+    return std::nullopt;
+}
+
+namespace {
 Result ResolvePlaylistTrack(const std::string& title) {
     CardIndex card;
     if (!card.lease.ready) return {false, "请插入 SD 卡"};
@@ -264,6 +315,18 @@ std::optional<Result> Handle(const cJSON* data) {
             int min = strcmp(key,"minutes") ? 1 : 0;
             if (!cJSON_IsNumber(value) || value->valueint != value->valuedouble ||
                 value->valueint < min || value->valueint > (min ? 300 : 180)) return Result{false, "时长超出范围"};
+        }
+        std::lock_guard<std::mutex> guard(pocket_media::lock);
+        // Older settings pages submit all paths without recording which directory was selected.
+        pocket_media::Config previous;
+        for (const auto* key : {"music","stories"}) {
+            bool music = !strcmp(key,"music");
+            const char* flag = music ? "music_set" : "stories_set";
+            auto* value = cJSON_GetObjectItem(config,flag);
+            if (!value) {
+                bool changed = pocket_media::Text(config,key) != (music ? previous.music : previous.stories);
+                cJSON_AddBoolToObject(config,flag,changed || (music ? previous.music_set : previous.stories_set));
+            } else if (!cJSON_IsBool(value)) return Result{false, "目录选择状态无效"};
         }
         if (!cJSON_IsBool(cJSON_GetObjectItem(config,"chapter_stop")) || !pocket_media::Save("config",config))
             return Result{false, "保存媒体设置失败"};
