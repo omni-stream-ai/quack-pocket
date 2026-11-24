@@ -57,7 +57,8 @@ public:
     void SetVoicePaused(bool paused);
     bool InShortcutConversation() const { return shortcut_conversation_.load(); }
     bool IsVoicePaused() const { return voice_paused_.load(); }
-    void FinishChatForMusic();
+    uint32_t VoiceSession() const { return voice_session_.load(); }
+    void FinishChatForMusic(uint32_t session = 0);
     void StartListening();
     void StopListening();
     void Reboot();
@@ -78,6 +79,7 @@ private:
     std::atomic<bool> deferred_wake_entry_{false};
     std::atomic<bool> waiting_for_voice_entry_{false};
     std::atomic<bool> voice_paused_{false};
+    std::atomic<uint32_t> voice_session_{0};
     std::mutex mutex_;
     std::deque<std::function<void()>> main_tasks_;
     std::unique_ptr<Protocol> protocol_;

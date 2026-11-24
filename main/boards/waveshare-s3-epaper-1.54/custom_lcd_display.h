@@ -38,6 +38,7 @@ public:
     bool WakeScreen();
     void SetStatus(const char* status) override;
     void ShowVoiceHint(const char* text, int duration_ms) override;
+    void ShowReminder(const char* text);
     void ShowUpdatePage(const std::string& text);
     void ShowGuide(int page);
     bool ShowVoiceStandby(bool visible);
@@ -67,6 +68,7 @@ public:
 private:
     lv_obj_t* standby_page_ = nullptr;
     lv_obj_t* voice_hint_ = nullptr;
+    lv_obj_t* reminder_label_ = nullptr;
     lv_timer_t* voice_hint_timer_ = nullptr;
     bool network_home_ = false;
     bool network_connecting_ = false;

@@ -155,6 +155,10 @@ header{display:flex;flex-wrap:nowrap;align-items:center}#disconnect{width:44px;h
 .preview-loading{width:min(200px,100%);aspect-ratio:1;margin:.7rem 0;border-radius:6px}
 .list-loading{height:48px;border-radius:10px;margin:12px 0}
 .saver-preview,#homeFrame{image-rendering:pixelated}
+#reminderList{list-style:none;padding:0;display:grid;gap:.6rem}
+#reminderList li{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.6rem;padding:.75rem;border:1px solid var(--line);border-radius:.7rem;overflow-wrap:anywhere}
+#reminderList li div:first-child{min-width:0}#reminderList small{display:block}
+#reminderEditor{border-top:1px solid var(--line);margin-top:1rem;padding-top:.75rem}
 @keyframes loadingSweep{from{background-position:100% 0}to{background-position:-100% 0}}
 @media(prefers-reduced-motion:reduce){.preview-loading,.list-loading{animation:none}}
 </style></head><body>
@@ -166,7 +170,7 @@ header{display:flex;flex-wrap:nowrap;align-items:center}#disconnect{width:44px;h
 <section class="guide" id="authorization" hidden><h2>授权此浏览器</h2>
 <label>在鸭子上显示的名称<input id="browserName" maxlength="16" placeholder="例如：妈妈的手机"></label>
 <button id="requestAccess">请求连接</button><p id="authStatus" role="status"></p></section>
-<form id="settings" hidden><nav id="appNav" aria-label="主导航"><a href="#device"><i class="device-icon" aria-hidden="true"></i>设备</a><a href="#media"><i class="folder-icon" aria-hidden="true"></i>内容</a><a href="#voice"><i class="mic-icon" aria-hidden="true"></i>语音</a></nav><nav id="overview" class="task-groups" aria-label="设备总览"><section class="task-group" id="media"><h2>我的内容</h2><p id="contentState" role="status">正在读取设备的内容功能…</p><a href="#library" data-sections="library" class="feature music-feature"><span class="feature-copy"><strong>音乐库</strong><small id="librarySummary"></small></span><span class="record" aria-hidden="true"></span></a><div id="quickLists" hidden><h3>播放歌单</h3><div id="quickTracks"></div><small id="quickStatus" role="status"></small></div><a href="#stories" data-sections="stories"><span class="entry-icon"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M12 6c-3-2-6-2-9-1v14c3-1 6-1 9 1 3-2 6-2 9-1V5c-3-1-6-1-9 1zm0 0v14"/></svg></span><span class="entry-name">故事</span></a><a href="#messages" data-sections="messages"><span class="entry-icon"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M4 4h16v12H9l-5 4zM8 8h8m-8 4h5"/></svg></span><span class="entry-name">留言</span></a><a href="#sdBrowser" data-sections="sdBrowser"><span class="entry-icon"><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h10l2 2v16H5V7zM9 4v5m3-5v5m3-5v5"/></svg></span><span class="entry-name">浏览 SD 卡</span></a><a href="#checklist" data-sections="checklist"><span class="entry-icon"><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="3" width="15" height="18" rx="3"/><path d="m8 9 1 1 2-3m2 2h4m-9 6 1 1 2-3m2 2h4"/></svg></span><span class="entry-name">口袋清单</span></a></section><section class="task-group" id="voice"><h2>语音设置</h2><a href="#service" data-sections="service llmSettings speechSettings standby" class="feature voice-feature"><span class="feature-copy"><strong>语音服务</strong><small id="serviceSummary"></small></span><span class="waveform" aria-hidden="true"><i style="--h:21%"></i><i style="--h:37%"></i><i style="--h:64%"></i><i style="--h:45%"></i><i style="--h:84%"></i><i style="--h:100%"></i><i style="--h:60%"></i><i style="--h:41%"></i><i style="--h:77%"></i><i style="--h:52%"></i><i style="--h:30%"></i><i style="--h:15%"></i></span></a><a href="#controls" data-sections="controls words"><span class="entry-icon"><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h8m5 0h3M4 17h3m5 0h8"/><circle cx="14.5" cy="7" r="2.5"/><circle cx="9.5" cy="17" r="2.5"/></svg></span><span class="entry-name">管理语音功能与技能</span></a></section><section class="task-group" id="device"><h2>我的设备</h2><a class="feature device-feature" href="#screen" data-sections="screen shutdownScreen"><span class="feature-copy"><strong>墨水屏</strong><span>更换待机与关机画面</span></span><div class="device-stage" aria-hidden="true"><div class="pocket-shell"><div class="pocket-glass"><img class="pocket-duck" alt=""><canvas id="homeFrame" width="200" height="200" hidden></canvas></div><span class="speaker"></span></div></div></a><a href="#wifi" data-sections="wifi bluetoothSettings"><span class="entry-icon"><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 8a15 15 0 0 1 20 0M5 12a10 10 0 0 1 14 0m-11 4a6 6 0 0 1 8 0"/><circle cx="12" cy="20" r="1"/></svg></span><span class="entry-name">管理网络连接</span><small id="wifiSummary"></small></a><a href="#updateSource" data-sections="updateSource"><span class="entry-icon"><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m-5-5 5 5 5-5M4 16v4h16v-4"/></svg></span><span class="entry-name">检查固件更新</span></a><a href="#factoryReset" data-sections="factoryReset"><span class="entry-icon"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M3 10a9 9 0 1 1 1 7M3 4v6h6"/></svg></span><span class="entry-name">恢复出厂设置</span></a></section></nav><div id="taskBar" hidden><a href="#overview">‹ 设备总览</a><h2 id="taskTitle"></h2><div id="taskTabs" aria-label="任务选项"></div></div><div class="settings-content">
+<form id="settings" hidden><nav id="appNav" aria-label="主导航"><a href="#device"><i class="device-icon" aria-hidden="true"></i>设备</a><a href="#media"><i class="folder-icon" aria-hidden="true"></i>内容</a><a href="#voice"><i class="mic-icon" aria-hidden="true"></i>语音</a></nav><nav id="overview" class="task-groups" aria-label="设备总览"><section class="task-group" id="media"><h2>我的内容</h2><p id="contentState" role="status">正在读取设备的内容功能…</p><a href="#library" data-sections="library" class="feature music-feature"><span class="feature-copy"><strong>音乐库</strong><small id="librarySummary"></small></span><span class="record" aria-hidden="true"></span></a><div id="quickLists" hidden><h3>播放歌单</h3><div id="quickTracks"></div><small id="quickStatus" role="status"></small></div><a href="#stories" data-sections="stories"><span class="entry-icon"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M12 6c-3-2-6-2-9-1v14c3-1 6-1 9 1 3-2 6-2 9-1V5c-3-1-6-1-9 1zm0 0v14"/></svg></span><span class="entry-name">故事</span></a><a href="#messages" data-sections="messages"><span class="entry-icon"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M4 4h16v12H9l-5 4zM8 8h8m-8 4h5"/></svg></span><span class="entry-name">留言</span></a><a href="#sdBrowser" data-sections="sdBrowser"><span class="entry-icon"><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h10l2 2v16H5V7zM9 4v5m3-5v5m3-5v5"/></svg></span><span class="entry-name">浏览 SD 卡</span></a><a href="#checklist" data-sections="checklist"><span class="entry-icon"><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="3" width="15" height="18" rx="3"/><path d="m8 9 1 1 2-3m2 2h4m-9 6 1 1 2-3m2 2h4"/></svg></span><span class="entry-name">口袋清单</span></a></section><section class="task-group" id="voice"><h2>语音设置</h2><a href="#service" data-sections="service llmSettings speechSettings standby" class="feature voice-feature"><span class="feature-copy"><strong>语音服务</strong><small id="serviceSummary"></small></span><span class="waveform" aria-hidden="true"><i style="--h:21%"></i><i style="--h:37%"></i><i style="--h:64%"></i><i style="--h:45%"></i><i style="--h:84%"></i><i style="--h:100%"></i><i style="--h:60%"></i><i style="--h:41%"></i><i style="--h:77%"></i><i style="--h:52%"></i><i style="--h:30%"></i><i style="--h:15%"></i></span></a><a href="#controls" data-sections="controls words"><span class="entry-icon"><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h8m5 0h3M4 17h3m5 0h8"/><circle cx="14.5" cy="7" r="2.5"/><circle cx="9.5" cy="17" r="2.5"/></svg></span><span class="entry-name">管理语音功能与技能</span></a></section><section class="task-group" id="device"><h2>我的设备</h2><a class="feature device-feature" href="#screen" data-sections="screen shutdownScreen"><span class="feature-copy"><strong>墨水屏</strong><span>更换待机与关机画面</span></span><div class="device-stage" aria-hidden="true"><div class="pocket-shell"><div class="pocket-glass"><img class="pocket-duck" alt=""><canvas id="homeFrame" width="200" height="200" hidden></canvas></div><span class="speaker"></span></div></div></a><a href="#wifi" data-sections="wifi bluetoothSettings"><span class="entry-icon"><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 8a15 15 0 0 1 20 0M5 12a10 10 0 0 1 14 0m-11 4a6 6 0 0 1 8 0"/><circle cx="12" cy="20" r="1"/></svg></span><span class="entry-name">管理网络连接</span><small id="wifiSummary"></small></a><a href="#updateSource" data-sections="updateSource"><span class="entry-icon"><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m-5-5 5 5 5-5M4 16v4h16v-4"/></svg></span><span class="entry-name">检查固件更新</span></a><a href="#factoryReset" data-sections="factoryReset"><span class="entry-icon"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M3 10a9 9 0 1 1 1 7M3 4v6h6"/></svg></span><span class="entry-name">恢复出厂设置</span></a><a href="#playbackSettings" data-sections="playbackSettings" hidden>播放设置</a><a href="#reminders" data-sections="reminders" hidden>闹钟与提醒</a></section></nav><div id="taskBar" hidden><a href="#overview">‹ 设备总览</a><h2 id="taskTitle"></h2><div id="taskTabs" aria-label="任务选项"></div></div><div class="settings-content">
 <fieldset id="wifi"><legend>无线网络</legend>
 <details id="picker" open><summary>附近的 2.4 GHz Wi-Fi</summary><div id="networks"></div></details>
 <button type="button" id="scan">刷新网络列表</button><small id="scanStatus" role="status"></small>
@@ -231,6 +235,21 @@ header{display:flex;flex-wrap:nowrap;align-items:center}#disconnect{width:44px;h
 <p id="bluetoothState" role="status"></p><button type="button" id="toggleBluetooth"></button></fieldset>
 <fieldset id="checklist" hidden><legend>口袋清单</legend><label>每行一项，最多 24 项<textarea id="checkItems"></textarea></label>
 <button type="button" id="saveCheck">保存清单</button><small role="status" id="checkStatus"></small></fieldset>
+<fieldset id="playbackSettings" hidden><legend>播放设置</legend>
+<label><input type="checkbox" id="loudnessEnabled" checked>响度归一化</label>
+<small>缩小音乐和故事之间的响度差，让偏轻的录音更易听清。</small>
+<small id="loudnessStatus" role="status"></small></fieldset>
+<fieldset id="reminders" hidden><legend>闹钟与提醒</legend>
+<div class="button-group"><button type="button" id="newReminder" disabled>添加闹钟或提醒</button><button type="button" id="refreshReminders">刷新</button></div>
+<small id="reminderClock" role="status"></small>
+<ul id="reminderList"></ul><p id="reminderEmpty" hidden>还没有闹钟或定时提醒。</p>
+<div id="reminderEditor" hidden><h3 id="reminderEditorTitle"></h3>
+<label>提醒内容<input id="reminderMessage" maxlength="144" placeholder="留空为闹钟"></label>
+<label>重复<select id="reminderRepeat"><option value="once">仅一次</option><option value="daily">每天</option></select></label>
+<label id="reminderDateField">日期<input id="reminderDate" type="date"></label>
+<label>时间<input id="reminderTime" type="time" step="60"></label>
+<button type="button" id="saveReminder">保存</button><button type="button" id="closeReminder">取消编辑</button></div>
+<small id="reminderStatus" role="status"></small></fieldset>
 <fieldset id="library" hidden><legend>音乐库</legend>
 <label>搜索音乐<input id="musicQuery" type="search" placeholder="歌曲名或路径"></label><button type="button" id="searchMusic">搜索</button>
 <details id="playlistPanel" hidden><summary>管理播放列表</summary>
@@ -399,6 +418,7 @@ function showCategory(){
   contentView=view;
   if(view==='library')queueMicrotask(()=>{if(contentView===view)searchMusic(false)});
   if(view==='stories')queueMicrotask(()=>{if(contentView===view)openStories()});
+  if(view==='reminders')queueMicrotask(()=>{if(contentView===view)refreshReminders()});
  }
  el('overview').hidden=!!active;el('taskBar').hidden=!active;
  for(const section of document.querySelectorAll('.settings-content>fieldset'))section.classList.toggle('outside-category',section!==active);
@@ -556,6 +576,98 @@ async function pocketAction(action, fields){
  if(!response.ok)throw Error(message);
  return message;
 }
+el('loudnessEnabled').onchange=async()=>{
+ const box=el('loudnessEnabled'),enabled=box.checked,status=el('loudnessStatus'),generation=profileGeneration;
+ box.disabled=true;
+ try{
+  const message=await pocketAction('loudness',{enabled});
+  if(generation===profileGeneration)status.textContent=message;
+ }catch(e){
+  if(generation===profileGeneration){box.checked=!enabled;status.textContent=e.message}
+ }finally{if(generation===profileGeneration)box.disabled=false}
+};
+let reminderToday='',reminderEditId=0,reminderRequest;
+const reminderDigits=value=>String(value).padStart(2,'0');
+function editReminder(entry){
+ reminderEditId=entry?.id||0;
+ el('reminderEditorTitle').textContent=entry?'编辑 '+entry.id+' 号':'添加闹钟或提醒';
+ el('reminderMessage').value=entry?.message||'';
+ el('reminderRepeat').value=entry?.daily?'daily':'once';
+ el('reminderDate').value=entry?.date||reminderToday;
+ el('reminderTime').value=entry?reminderDigits(entry.hour)+':'+reminderDigits(entry.minute):'';
+ el('reminderRepeat').onchange();
+ el('reminderEditor').hidden=false;
+ el('reminderMessage').focus();
+}
+el('reminderRepeat').onchange=()=>{el('reminderDateField').hidden=el('reminderRepeat').value==='daily'};
+el('newReminder').onclick=()=>editReminder();
+el('closeReminder').onclick=()=>{el('reminderEditor').hidden=true;el('reminderStatus').textContent=''};
+async function loadReminders(generation){
+ const data=JSON.parse(await pocketAction('reminders',{operation:'list'}));
+ if(generation!==profileGeneration)return;
+ reminderToday=data.today||'';
+ el('reminderDate').min=reminderToday;
+ el('reminderClock').textContent=reminderToday?'':'设备时间尚未校准，联网同步后可以添加或修改。';
+ el('newReminder').disabled=el('saveReminder').disabled=!reminderToday;
+ const list=el('reminderList');list.replaceChildren();
+ el('reminderEmpty').hidden=data.entries.length>0;
+ for(const entry of data.entries){
+  const row=document.createElement('li'), summary=document.createElement('div');
+  const title=document.createElement('strong'), detail=document.createElement('small');
+  title.textContent=entry.message||'闹钟';
+  detail.textContent=entry.id+' 号 · '+(entry.daily?'每天':entry.date)+' '+reminderDigits(entry.hour)+':'+reminderDigits(entry.minute);
+  summary.append(title,detail);
+  const actions=document.createElement('div');actions.className='button-group';
+  const edit=document.createElement('button');edit.type='button';edit.textContent='编辑';
+  edit.disabled=!reminderToday;edit.onclick=()=>editReminder(entry);
+  const remove=document.createElement('button');remove.type='button';remove.textContent='删除';
+  remove.onclick=()=>{
+   if(!confirm('删除 '+entry.id+' 号「'+title.textContent+'」？'))return;
+   runReminderAction(async generation=>{
+    const message=await pocketAction('reminders',{operation:'cancel',id:entry.id});
+    if(generation!==profileGeneration)return;
+    if(reminderEditId===entry.id)el('reminderEditor').hidden=true;
+    el('reminderStatus').textContent=message;
+    await loadReminders(generation);
+   });
+  };
+  actions.append(edit,remove);row.append(summary,actions);list.append(row);
+ }
+}
+async function runReminderAction(action){
+ const field=el('reminders'),status=el('reminderStatus'),generation=profileGeneration;
+ if(reminderRequest===generation)return;
+ reminderRequest=generation;
+ field.disabled=true;status.textContent='';
+ try{await action(generation)}catch(e){if(generation===profileGeneration)status.textContent=e.message}
+ finally{if(reminderRequest===generation){reminderRequest=undefined;field.disabled=false}}
+}
+function refreshReminders(){
+ return runReminderAction(async generation=>{
+  el('reminderStatus').textContent='正在读取闹钟和提醒…';
+  await loadReminders(generation);
+  if(generation===profileGeneration)el('reminderStatus').textContent='';
+ });
+}
+el('refreshReminders').onclick=refreshReminders;
+el('saveReminder').onclick=()=>{
+ const time=el('reminderTime').value,date=el('reminderDate'),daily=el('reminderRepeat').value==='daily';
+ const message=el('reminderMessage').value.trim();
+ if(!time||(!daily&&(!date.value||!date.validity.valid))){
+  el('reminderStatus').textContent='请填写有效的日期和时间。';return;
+ }
+ if(new TextEncoder().encode(message).length>144){el('reminderStatus').textContent='提醒内容太长，请缩短后保存。';return}
+ const [hour,minute]=time.split(':').map(Number);
+ const id=reminderEditId,payload={operation:id?'edit':'set',hour,minute,date:daily?'':date.value,daily,message};
+ if(id)payload.id=id;
+ runReminderAction(async generation=>{
+  const result=await pocketAction('reminders',payload);
+  if(generation!==profileGeneration)return;
+  el('reminderEditor').hidden=true;
+  el('reminderStatus').textContent=result;
+  await loadReminders(generation);
+ });
+};
 let mediaFolders=null,favorites=[],searchNext,searchGeneration=0,searchQuery='',pendingTracks=[];
 function mediaButton(row,title,action,statusId){
  const button=document.createElement('button');button.type='button';button.textContent=title;
@@ -1024,6 +1136,12 @@ async function load(){
   }
   const data=await response.json();
   if(current!==profileGeneration)return;
+  el('playbackSettings').hidden=typeof data.loudness!=='boolean';
+  el('loudnessEnabled').checked=data.loudness!==false;el('loudnessEnabled').disabled=false;el('loudnessStatus').textContent='';
+  el('reminders').hidden=data.reminders!==true;el('reminderEditor').hidden=true;
+  el('reminderList').replaceChildren();el('reminderEmpty').hidden=true;el('newReminder').disabled=true;
+  el('reminderClock').textContent=el('reminderStatus').textContent='';
+  if(data.reminders===true&&contentView==='reminders')refreshReminders();
   playlists=data.playlists||{};el('playlistPanel').hidden=!data.playlists;renderPlaylists();
   mediaFolders=data.media;favorites=data.favorites||[];el('library').hidden=!data.media;renderFavorites();
   el('stories').hidden=el('messages').hidden=!data.media;el('storyBrowser').hidden=!data.sd_browser;

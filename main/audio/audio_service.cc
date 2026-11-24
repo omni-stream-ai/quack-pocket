@@ -463,13 +463,22 @@ void AudioService::InterruptMusicForWake() {
     const uint32_t now = esp_timer_get_time();
     std::lock_guard<std::mutex> lock(audio_queue_mutex_);
     wake_music_hold_ = true;
-    const auto before = audio_playback_queue_.size();
-    audio_playback_queue_.erase(std::remove_if(audio_playback_queue_.begin(), audio_playback_queue_.end(),
-        [](const auto& task) { return task->type == kAudioTaskTypeMusic; }), audio_playback_queue_.end());
+    const auto removed = DropQueuedMusic();
     if (music_in_output_) interrupted_output_us_ = now;
-    audio_queue_cv_.notify_all();
     ESP_LOGI(TAG, "Wake detected: local PCM gated in %u us, removed=%u, in_output=%d",
-             uint32_t(esp_timer_get_time()) - now, unsigned(before - audio_playback_queue_.size()), music_in_output_);
+             uint32_t(esp_timer_get_time()) - now, unsigned(removed), music_in_output_);
+}
+
+size_t AudioService::DropQueuedMusic() {
+    auto removed = std::erase_if(audio_playback_queue_, [](const auto& task) { return task->type == kAudioTaskTypeMusic; });
+    audio_queue_cv_.notify_all();
+    return removed;
+}
+
+void AudioService::HoldMusicForReminder(bool hold) {
+    std::lock_guard<std::mutex> lock(audio_queue_mutex_);
+    reminder_music_hold_ = hold;
+    if (hold) DropQueuedMusic();
 }
 
 void AudioService::EndWakeInterruption() {
@@ -478,7 +487,7 @@ void AudioService::EndWakeInterruption() {
 
 bool AudioService::PushMusicPcm(std::vector<int16_t>& pcm, bool protect_wake) {
     std::unique_lock<std::mutex> lock(audio_queue_mutex_);
-    if (wake_music_hold_ || service_stopped_ || audio_playback_queue_.size() >= MAX_PLAYBACK_TASKS_IN_QUEUE) {
+    if (IsMusicInterrupted() || service_stopped_ || audio_playback_queue_.size() >= MAX_PLAYBACK_TASKS_IN_QUEUE) {
         return false;
     }
     auto task = std::make_unique<AudioTask>();

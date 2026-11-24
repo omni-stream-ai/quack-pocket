@@ -1,4 +1,7 @@
 #include "pocket_sensors.h"
+#include "pocket_reminders.h"
+#include "assets/lang_config.h"
+#include <deque>
 #include "voice/control_policy.h"
 #ifdef OMNI_MUSIC_HIL
 #include "music_hil.h"
@@ -59,6 +62,27 @@ private:
     adc_cali_handle_t battery_cali_ = nullptr;
     std::atomic<bool> low_battery_{false};
     std::atomic<bool> offline_home_{false};
+    std::deque<std::string> due_reminders_;
+    std::atomic<uint32_t> active_reminder_{0};
+    uint32_t reminder_sequence_ = 0;
+    int64_t checked_reminder_minute_ = -1;
+    int64_t reminder_end_ = 0;
+    int64_t reminder_sound_ = 0;
+
+    void StopReminder() {
+        active_reminder_ = 0;
+        display_->ShowReminder(nullptr);
+        Application::GetInstance().GetAudioService().HoldMusicForReminder(false);
+    }
+
+    bool DismissReminderFromButton() {
+        const auto active = active_reminder_.load();
+        if (!active) return false;
+        Application::GetInstance().Schedule([this, active] {
+            if (active_reminder_ == active) StopReminder();
+        });
+        return true;
+    }
 
     std::atomic<bool> menu_open_{false};
     size_t group_ = 0;
@@ -944,6 +968,7 @@ private:
 
     void InitializeButtons() { 
         boot_button_.OnClick([this]() {
+            if (DismissReminderFromButton()) return;
             if (music_.FinishRecording()) return;
             if (WakeFromVoiceStandby()) return;
             if (favorite_index_ >= 0) { FavoritePage(true,false); return; }
@@ -1034,10 +1059,48 @@ private:
         });
     }
 
+    ReturnValue VoicePlayback(MusicAction action, std::string path) {
+        return DeferredMcpResult([this, action, path = std::move(path)](McpReply reply) {
+            auto& app = Application::GetInstance();
+            const auto session = app.VoiceSession();
+            if (!music_.RequestVoice(action, path, session, [this, session, reply](MusicPlayer::VoiceResult status, std::string prompt) {
+                Application::GetInstance().Schedule([this, session, reply, status, prompt = std::move(prompt)] {
+                    if (session != Application::GetInstance().VoiceSession()) return;
+                    if (status == MusicPlayer::VoiceResult::Playing) {
+                        reply(true);
+                        return;
+                    }
+                    display_->SetChatMessage("assistant", prompt.c_str());
+                    display_->ShowVoiceHint(prompt.c_str(), status == MusicPlayer::VoiceResult::Choice ? 12000 : 4500);
+                    auto* result = cJSON_CreateObject();
+                    const char* state = status == MusicPlayer::VoiceResult::Choice ? "choose" :
+                        status == MusicPlayer::VoiceResult::Retry ? "retry" : "message";
+                    cJSON_AddStringToObject(result, "status", state);
+                    cJSON_AddStringToObject(result, "prompt", prompt.c_str());
+                    reply(result);
+                });
+            })) reply(std::string("播放器正忙，请重试。"));
+        });
+    }
+
     void InitializeTools() {
         auto& mcp_server = McpServer::GetInstance();
         mcp_server.AddTool("self.environment.status", "查询设备当地日期、时间及板载传感器实测的温度和相对湿度。", PropertyList(),
             [](const PropertyList&) -> ReturnValue { return pocket_sensors::Status(); });
+        mcp_server.AddTool("self.reminder.manage", "仅在用户要求设置、查询或取消设备上的闹钟和定时提醒时使用。"
+            "operation 为 set、list 或 cancel。set 的 hour 用 0 到 23，minute 缺省为 0。"
+            "date 用 today、tomorrow、day_after_tomorrow 或 YYYY-MM-DD，省略表示下一次到这个时间。"
+            "每天重复时 daily 为 true 且省略 date。message 为提醒内容，普通闹钟留空。"
+            "取消用编号 id，或指定时间和内容。",
+            PropertyList({Property("operation", kPropertyTypeString), Property("hour", kPropertyTypeInteger, -1, -1, 23),
+                Property("minute", kPropertyTypeInteger, -1, -1, 59), Property("date", kPropertyTypeString, std::string()),
+                Property("daily", kPropertyTypeBoolean, false), Property("message", kPropertyTypeString, std::string()),
+                Property("id", kPropertyTypeInteger, 0)}),
+            [this](const PropertyList& props) -> ReturnValue {
+                return pocket_reminders::Schedule::Instance().Manage({props["operation"].value<std::string>(), props["hour"].value<int>(),
+                    props["minute"].value<int>(), props["date"].value<std::string>(), props["daily"].value<bool>(),
+                    props["message"].value<std::string>(), props["id"].value<int>()}).message;
+            });
         mcp_server.AddTool("self.voice.enter_local_mode", "用户明确说返回首页、退出语音通话或结束语音服务时调用。关闭当前语音通话并回到首页，保留 Wi-Fi。", PropertyList(),
             [this](const PropertyList&) -> ReturnValue {
                 Application::GetInstance().SetVoicePaused(true);
@@ -1053,15 +1116,14 @@ private:
                 if (result.ok && operation == "play") Application::GetInstance().FinishChatForMusic();
                 return result.body;
             });
-        mcp_server.AddTool("self.music.play_file", "用户点播歌曲时优先调用此工具，按歌名查找并播放存储卡上的 MP3。path 填用户说的歌名（文件名可省略扩展名），或包含扩展名的完整相对路径。",
+        mcp_server.AddTool("self.music.play_file", "点播存储卡上的歌曲。path 填歌名或完整相对路径。结果为 choose 或 retry 时，按 prompt 询问用户，再用 self.music.select 传入回答。",
             PropertyList({ Property("path", kPropertyTypeString) }),
             [this](const PropertyList& properties) -> ReturnValue {
                 auto path = properties["path"].value<std::string>();
-                bool queued = music_.Request(MusicAction::PlayFile, path.c_str());
-                if (queued) Application::GetInstance().FinishChatForMusic();
-                return queued;
+                if (path.empty() || !ValidPocketPath(path)) return std::string("请指定有效的歌名或卡内路径。");
+                return VoicePlayback(MusicAction::PlayFile, std::move(path));
             });
-        mcp_server.AddTool("self.music.control", "音乐控制，未指定曲目时用 resume_music 续播音乐，resume_story 续播故事；点播故事时配合 path 指定章节。用户要求循环播放指定歌曲用 repeat_music，循环播放指定故事用 repeat_story，path 必填，填写歌名、书名、章节名或卡内相对路径。其他 action 有 sequential 顺序播放、shuffle 随机播放、next 下一首或 stop 停止。",
+        mcp_server.AddTool("self.music.control", "resume_music 续播音乐，resume_story 续播故事。点播故事时用 path 填书名、章节名或卡内相对路径。repeat_music 循环歌曲，repeat_story 循环故事，两者必须填 path。其他 action 有 sequential、shuffle、next、stop。结果为 choose 或 retry 时，按 prompt 询问用户，再用 self.music.select 传入回答。",
             PropertyList({ Property("action", kPropertyTypeString), Property("path", kPropertyTypeString, std::string()) }),
             [this](const PropertyList& properties) -> ReturnValue {
                 auto action = properties["action"].value<std::string>();
@@ -1073,14 +1135,20 @@ private:
                 else if (action == "sequential") command = MusicAction::Sequential;
                 else if (action == "shuffle") command = MusicAction::Shuffle;
                 else if (action == "next") command = MusicAction::Next;
-                else if (action == "stop") command = MusicAction::Stop;
+                else if (action == "stop") return music_.Request(MusicAction::Stop);
                 else return false;
                 bool repeat = command == MusicAction::RepeatFile || command == MusicAction::RepeatStory;
                 auto path = repeat || command == MusicAction::Story ? properties["path"].value<std::string>() : "";
-                if (repeat && (path.empty() || !ValidPocketPath(path))) return false;
-                bool queued = music_.Request(command, path.c_str());
-                if (queued && command != MusicAction::Stop) Application::GetInstance().FinishChatForMusic();
-                return queued;
+                if ((repeat && path.empty()) || !ValidPocketPath(path))
+                    return std::string("请指定有效的歌名、书名、章节名或卡内路径。");
+                return VoicePlayback(command, std::move(path));
+            });
+        mcp_server.AddTool("self.music.select", "仅在上一次点歌或点播故事返回 choose 或 retry 时使用。choice 填用户的编号、关键词、重说的名称或「取消」。用户改点其他内容时直接调用对应的点播工具。",
+            PropertyList({ Property("choice", kPropertyTypeString) }),
+            [this](const PropertyList& properties) -> ReturnValue {
+                auto choice = properties["choice"].value<std::string>();
+                if (choice.size() >= MUSIC_PATH_CAPACITY) return std::string("请说编号或简短的关键词。");
+                return VoicePlayback(MusicAction::VoiceSelect, std::move(choice));
             });
         mcp_server.AddTool("self.audio_speaker.adjust_volume", "调高或调低当前音量，delta 为增减幅度。",
             PropertyList({Property("delta", kPropertyTypeInteger, -100, 100)}),
@@ -1199,7 +1267,40 @@ public:
             Application::GetInstance().FinishChatForMusic();
     }
 
+    void CheckReminders() override {
+        auto& reminders = pocket_reminders::Schedule::Instance();
+        if (!reminders.Empty()) {
+            const int64_t utc_minute = time(nullptr) / 60;
+            if (utc_minute != checked_reminder_minute_) {
+                checked_reminder_minute_ = utc_minute;
+                if (const auto local = pocket_reminders::Now()) {
+                    for (auto& message : reminders.TakeDue(*local)) due_reminders_.push_back(std::move(message));
+                }
+            }
+        }
+        const auto now = esp_timer_get_time();
+        if (active_reminder_ && now >= reminder_end_) StopReminder();
+        auto& app = Application::GetInstance();
+        if (!active_reminder_ && !due_reminders_.empty()) {
+            auto message = std::move(due_reminders_.front());
+            due_reminders_.pop_front();
+            if (++reminder_sequence_ == 0) ++reminder_sequence_;
+            active_reminder_ = reminder_sequence_;
+            reminder_end_ = now + 30000000;
+            reminder_sound_ = now;
+            WakeFromVoiceStandby();
+            app.GetAudioService().HoldMusicForReminder(true);
+            const auto text = (message.empty() ? std::string("闹钟响了") : "定时提醒\n" + message) + "\n\n短按 确认键 停止";
+            display_->ShowReminder(text.c_str());
+        }
+        if (active_reminder_ && now >= reminder_sound_) {
+            reminder_sound_ = now + 4000000;
+            app.PlaySound(Lang::Sounds::OGG_EXCLAMATION);
+        }
+    }
+
     void CheckVoiceStandby() override {
+        if (active_reminder_) return;
         if (ManagementInUse()) {
             WakeFromVoiceStandby();
             return;

@@ -283,9 +283,9 @@ void Application::DismissAlert() {
     }
 }
 
-void Application::FinishChatForMusic() {
-    Schedule([this]() {
-        if (protocol_ && protocol_->IsAudioChannelOpened()) {
+void Application::FinishChatForMusic(uint32_t session) {
+    Schedule([this, session]() {
+        if ((!session || session == VoiceSession()) && protocol_ && protocol_->IsAudioChannelOpened()) {
             protocol_->CloseAudioChannel();
         }
     });
@@ -580,6 +580,7 @@ void Application::Start() {
         }
     });
     protocol_->OnAudioChannelOpened([this, codec, &board]() {
+        ++voice_session_;
         board.SetPowerSaveMode(false);
         if (protocol_->server_sample_rate() != codec->output_sample_rate()) {
             ESP_LOGW(TAG, "Server sample rate %d does not match device output sample rate %d, resampling may cause distortion",
@@ -587,6 +588,7 @@ void Application::Start() {
         }
     });
     protocol_->OnAudioChannelClosed([this, &board]() {
+        ++voice_session_;
         board.SetPowerSaveMode(true);
         Schedule([this]() {
             if (protocol_ && protocol_->IsAudioChannelOpened()) return;
@@ -638,9 +640,10 @@ void Application::Start() {
             auto text = cJSON_GetObjectItem(root, "text");
             if (cJSON_IsString(text)) {
                 ESP_LOGI(TAG, ">> %s", text->valuestring);
-                Schedule([this, display, message = std::string(text->valuestring)]() {
+                const bool handle_locally = !cJSON_IsFalse(cJSON_GetObjectItem(root, "handle_locally"));
+                Schedule([display, handle_locally, message = std::string(text->valuestring)]() {
                     display->SetChatMessage("user", message.c_str());
-                    Board::GetInstance().HandleVoiceTranscript(message);
+                    if (handle_locally) Board::GetInstance().HandleVoiceTranscript(message);
                 });
             }
         } else if (strcmp(type->valuestring, "llm") == 0) {
@@ -804,7 +807,9 @@ void Application::MainEventLoop() {
         }
 
         if (bits & MAIN_EVENT_CLOCK_TICK) {
-            Board::GetInstance().CheckVoiceStandby();
+            auto& board = Board::GetInstance();
+            board.CheckReminders();
+            board.CheckVoiceStandby();
             clock_ticks_++;
             auto display = Board::GetInstance().GetDisplay();
             display->UpdateStatusBar();

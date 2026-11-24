@@ -43,6 +43,33 @@ PROBE = """<script>
             await wait(()=>!auto.disabled);
             check(auto.checked===enabled && byId('updateStatus').textContent==='更新设置已保存','Auto-update preference failed');
         }
+        const loudness=byId('loudnessEnabled');
+        document.querySelector('#overview a[href="#playbackSettings"]').click();
+        await wait(()=>!byId('playbackSettings').classList.contains('outside-category'));
+        check(loudness.checked,'Loudness normalization should default on');
+        loudness.click();await wait(()=>byId('loudnessStatus').textContent==='响度归一化已关闭');
+        check(!loudness.checked && !loudness.disabled,'Loudness toggle did not save');
+        byId('taskBar').querySelector('a').click();
+        await wait(()=>!byId('overview').hidden);
+        document.querySelector('#overview a[href="#reminders"]').click();
+        await wait(()=>byId('reminderList').textContent.includes('吃早餐'));
+        check(byId('reminderList').textContent.includes('2026-11-25 09:00'),'Voice reminder date or time missing');
+        byId('reminderList').querySelector('button').click();
+        check(byId('reminderDate').value==='2026-11-25' && byId('reminderTime').value==='09:00','Edit did not load the reminder');
+        byId('reminderTime').value='09:30';byId('saveReminder').click();
+        await wait(()=>byId('reminderList').textContent.includes('09:30') && !byId('reminders').disabled);
+        byId('newReminder').click();
+        byId('reminderRepeat').value='daily';byId('reminderRepeat').onchange();
+        check(byId('reminderDateField').hidden,'Daily alarms should not require a date');
+        byId('reminderTime').value='07:00';byId('saveReminder').click();
+        await wait(()=>byId('reminderList').textContent.includes('每天 07:00') && !byId('reminders').disabled);
+        window.confirm=()=>true;
+        byId('reminderList').querySelectorAll('button')[1].click();
+        await wait(()=>!byId('reminderList').textContent.includes('吃早餐') && !byId('reminders').disabled);
+        byId('reminderList').querySelectorAll('button')[1].click();
+        await wait(()=>!byId('reminderEmpty').hidden && !byId('reminders').disabled);
+        byId('taskBar').querySelector('a').click();
+        await wait(()=>!byId('overview').hidden);
         if(typeof characteristicMock!=='undefined'){
             check(!byId('useSiteUpdates').hidden,'Hosted update action missing');
             byId('useSiteUpdates').click();
@@ -397,6 +424,7 @@ class PhoneSetup(unittest.TestCase):
         card = {}
         uploads = {}
         networks = ["home"]
+        reminders = {1: dict(id=1, date="2026-11-25", daily=False, hour=9, minute=0, message="吃早餐")}
         finished = threading.Event()
 
         class Handler(BaseHTTPRequestHandler):
@@ -404,6 +432,7 @@ class PhoneSetup(unittest.TestCase):
             reset_requests = 0
             reads = 0
             scans = 0
+            loudness = True
 
             def log_message(self, *args):
                 pass
@@ -437,6 +466,7 @@ class PhoneSetup(unittest.TestCase):
                     profile["voice_controls"] = dict(music=True, volume=True, state=True, skills=[])
                     profile.update(media=dict(music="",stories="故事",stories_set=True,music_set=False,messages="留言",minutes=15,
                                               record_seconds=60,chapter_stop=True),sd_browser=True,sd_manage=True,checklist=[],favorites=[])
+                    profile.update(loudness=Handler.loudness, reminders=True)
                     profile["offline_words"] = "播放\n暂停\n下一首\n上一首\n加音量\n降音量"
                     if Handler.reads <= 2:
                         self.reply(503, "text/plain", "设备服务繁忙")
@@ -492,6 +522,26 @@ class PhoneSetup(unittest.TestCase):
                 elif self.path == "/profile":
                     payload = json.loads(body)
                     action = payload.get("action")
+                    if action == "loudness" and type(payload.get("enabled")) is bool:
+                        Handler.loudness = payload["enabled"]
+                        return self.reply(200, "text/plain", "响度归一化已开启" if Handler.loudness else "响度归一化已关闭")
+                    if action == "reminders":
+                        operation = payload["operation"]
+                        if operation == "list":
+                            return self.reply(200, "application/json", json.dumps(dict(today="2026-11-24", entries=list(reminders.values()))))
+                        if operation == "cancel":
+                            del reminders[payload["id"]]
+                        else:
+                            entry = {key: payload[key] for key in ("hour", "minute", "daily", "date", "message")}
+                            if operation == "edit":
+                                assert entry == dict(hour=9, minute=30, daily=False, date="2026-11-25", message="吃早餐")
+                                entry_id = payload["id"]
+                                assert entry_id in reminders
+                            else:
+                                assert operation == "set" and entry == dict(hour=7, minute=0, daily=True, date="", message="")
+                                entry_id = max(reminders, default=0) + 1
+                            reminders[entry_id] = dict(entry, id=entry_id)
+                        return self.reply(200, "text/plain", "闹钟与提醒已更新")
                     path = payload.get("path")
                     if action == "sd_mkdir":
                         card[path] = None

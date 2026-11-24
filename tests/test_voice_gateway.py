@@ -2,6 +2,7 @@ import asyncio
 import ctypes as c
 from contextlib import asynccontextmanager
 import io
+import json
 import math
 import struct
 import unittest
@@ -20,6 +21,18 @@ TOKEN = "test-device-secret-used-only-locally"
 def pcm(rate, duration):
     count = int(rate * duration)
     return struct.pack("<" + "h" * count, *(int(8000 * math.sin(i * 2 * math.pi * 180 / rate)) for i in range(count)))
+
+
+async def record_turn(socket, encoder):
+    await socket.send_json({"type": "listen", "state": "start"})
+    frame = (c.c_int16 * 960).from_buffer_copy(pcm(16000, .06))
+    encoded = c.create_string_buffer(1275)
+    for _ in range(10):
+        n = opus.encode(encoder, frame, 960, encoded, len(encoded))
+        if n <= 0:
+            raise AssertionError(f"Opus encoder returned {n}")
+        await socket.send_bytes(encoded.raw[:n])
+    await socket.send_json({"type": "listen", "state": "stop"})
 
 
 class ModelSettings(unittest.TestCase):
@@ -94,11 +107,25 @@ class MusicCommands(unittest.TestCase):
         with self.assertRaises(ValueError):
             music_call(call)
 
+    def test_reminder_arguments(self):
+        examples = ({"operation": "set", "hour": 9, "date": "tomorrow", "message": "吃早餐"},
+                    {"operation": "set", "hour": 7, "daily": True}, {"operation": "list"},
+                    {"operation": "cancel", "id": 1}, {"operation": "cancel", "message": "吃早餐"})
+        for arguments in examples:
+            call = {"function": {"name": "manage_reminder", "arguments": json.dumps(arguments)}}
+            self.assertEqual(music_call(call), ("self.reminder.manage", arguments))
+        for arguments in ({"operation": "set"}, {"operation": "set", "hour": True},
+                          {"operation": "set", "hour": 24}, {"operation": "cancel", "id": -1}):
+            with self.subTest(arguments=arguments), self.assertRaises(ValueError):
+                music_call({"function": {"name": "manage_reminder", "arguments": json.dumps(arguments)}})
+
 
 class VoiceRoundTrip(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.calls = []
         self.music = False
+        self.transcript = None
+        self.device_call = None
         self.histories = []
         self.release_first_speech = asyncio.Event()
         app = web.Application()
@@ -110,13 +137,18 @@ class VoiceRoundTrip(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual((audio.getframerate(), audio.getnchannels()), (16000, 1))
                 self.assertGreater(audio.getnframes(), 0)
             self.calls.append(form["model"])
-            return web.json_response({"text": "播放音乐/示例.mp3" if self.music else "试音"})
+            return web.json_response({"text": self.transcript or ("播放音乐/示例.mp3" if self.music else "试音")})
 
         async def model(req):
             self.assertEqual(req.headers.get("Authorization"), "Bearer llm-key")
             data = await req.json()
             self.histories.append(data["messages"][1:-1])
             self.calls.append(data["model"])
+            if self.device_call:
+                name, arguments = self.device_call
+                self.assertTrue(any(tool["function"]["name"] == name for tool in data["tools"]))
+                return web.json_response({"choices": [{"message": {"tool_calls": [{"function": {
+                    "name": name, "arguments": json.dumps(arguments)}}]}}]})
             self.assertEqual("tools" in data, self.music)
             reply = {"content": "收到"} if not self.music else {"tool_calls": [{"function": {
                 "name": "play_file", "arguments": '{"path":"音乐/示例.mp3"}'}}]}
@@ -156,6 +188,95 @@ class VoiceRoundTrip(unittest.IsolatedAsyncioTestCase):
         for token, expected in (("incorrect", 401), (TOKEN, 204)):
             response = await self.client.get("/device", headers={**headers, "Authorization": "Bearer " + token})
             self.assertEqual(response.status, expected)
+
+    async def test_spoken_breakfast_reminder(self):
+        self.release_first_speech.set()
+        self.transcript = "明天早上9点提醒我吃早餐"
+        arguments = {"operation": "set", "hour": 9, "date": "tomorrow", "message": "吃早餐"}
+        self.device_call = "manage_reminder", arguments
+        headers = {"Device-Id": MAC, "Authorization": "Bearer " + TOKEN}
+        async with await self.client.ws_connect("/device", headers=headers) as socket:
+            await socket.send_json({"version": 1, "type": "hello", "features": {"reminders": True},
+                "audio_params": {"format": "opus", "sample_rate": 16000, "frame_duration": 60, "channels": 1},
+                "model_settings": {"model": "local/chat", "asr": "asr-a", "tts": "tts-b", "voice": "晓晓"}})
+            self.assertEqual((await socket.receive_json(timeout=2))["type"], "hello")
+            error = c.c_int()
+            encoder = opus.new_encoder(16000, 1, 2048, c.byref(error))
+            self.assertTrue(encoder)
+            self.addCleanup(opus.free_encoder, encoder)
+            await record_turn(socket, encoder)
+            self.assertEqual((await socket.receive_json(timeout=2))["text"], self.transcript)
+            call = (await socket.receive_json(timeout=2))["payload"]
+            self.assertEqual(call["params"], {"name": "self.reminder.manage", "arguments": arguments})
+            result = "已设置 1 号，2026年11月25日 09:00，提醒吃早餐。"
+            await socket.send_json({"type": "mcp", "payload": {"id": call["id"], "result": {"content": [
+                {"type": "text", "text": result}]}}})
+            self.assertEqual((await socket.receive_json(timeout=2))["state"], "start")
+            self.assertEqual((await socket.receive_json(timeout=2))["text"], result)
+            for _ in range(2):
+                self.assertEqual((await socket.receive(timeout=2)).type, WSMsgType.BINARY)
+            self.assertEqual((await socket.receive_json(timeout=2))["state"], "stop")
+            self.transcript = "取消1号"
+            cancel = {"operation": "cancel", "id": 1}
+            self.device_call = "manage_reminder", cancel
+            await record_turn(socket, encoder)
+            self.assertEqual((await socket.receive_json(timeout=2))["text"], self.transcript)
+            call = (await socket.receive_json(timeout=2))["payload"]
+            self.assertEqual(call["params"], {"name": "self.reminder.manage", "arguments": cancel})
+
+    async def test_media_choices_stay_in_the_same_call(self):
+        self.release_first_speech.set()
+        headers = {"Device-Id": MAC, "Authorization": "Bearer " + TOKEN}
+        async with await self.client.ws_connect("/device", headers=headers) as socket:
+            await socket.send_json({"version": 1, "type": "hello", "audio_params": {"format": "opus", "sample_rate": 16000,
+                "frame_duration": 60, "channels": 1}, "model_settings": {
+                    "model": "local/chat", "asr": "asr-a", "tts": "tts-b", "voice": "晓晓"},
+                "features": {"media_choice": True}, "voice_controls": {"music": True, "volume": True, "state": True,
+                    "skills": [{"phrase": "睡前时间", "action": "story", "argument": "格林童话"}]}})
+            self.assertEqual((await socket.receive_json(timeout=2))["type"], "hello")
+            error = c.c_int()
+            encoder = opus.new_encoder(16000, 1, 2048, c.byref(error))
+            self.assertTrue(encoder)
+            self.addCleanup(opus.free_encoder, encoder)
+
+            async def request(phrase, name, arguments, model=None, local=True):
+                self.transcript, self.device_call = phrase, model
+                await record_turn(socket, encoder)
+                stt = await socket.receive_json(timeout=2)
+                self.assertEqual(stt["text"], phrase)
+                self.assertEqual(stt.get("handle_locally", True), local)
+                call = (await socket.receive_json(timeout=2))["payload"]
+                self.assertEqual(call["params"], {"name": name, "arguments": arguments})
+                return call["id"]
+
+            async def reply(turn, status, prompt):
+                await socket.send_json({"type": "mcp", "payload": {"id": turn, "result": {"content": [
+                    {"type": "text", "text": json.dumps({"status": status, "prompt": prompt})}]}}})
+                self.assertEqual((await socket.receive_json(timeout=2))["state"], "start")
+                self.assertEqual((await socket.receive_json(timeout=2))["text"], prompt)
+                for _ in range(2):
+                    self.assertEqual((await socket.receive(timeout=2)).type, WSMsgType.BINARY)
+                self.assertEqual((await socket.receive_json(timeout=2))["state"], "stop")
+
+            song = {"path": "晴天"}
+            turn = await request("播放晴天", "self.music.play_file", song, ("play_file", song))
+            await reply(turn, "choose", "第一项，原版。第二项，钢琴版。")
+            turn = await request("播放第二首。", "self.music.select", {"choice": "播放第二首"})
+            await reply(turn, "choose", "请再选一次。")
+            turn = await request("取消", "self.music.select", {"choice": "取消"})
+            await reply(turn, "message", "已取消选择")
+
+            story = {"action": "resume_story", "path": "格林童话"}
+            turn = await request("睡前时间", "self.music.control", story, local=False)
+            await reply(turn, "choose", "第一项，原版。第二项，少儿版。")
+            turn = await request("少儿版", "self.music.select", {"choice": "少儿版"})
+            await reply(turn, "choose", "请再说一个关键词。")
+            turn = await request("播放晴天", "self.music.play_file", song, ("play_file", song))
+            await reply(turn, "retry", "没有找到这首歌，请再说一次歌名。")
+            turn = await request("晴天", "self.music.select", {"choice": "晴天"})
+            await socket.send_json({"type": "mcp", "payload": {"id": turn, "result": {"content": [
+                {"type": "text", "text": "true"}]}}})
+            self.assertEqual(self.calls.count("local/chat"), 2)
 
     async def test_model_and_music(self):
         response = await self.client.get("/device")

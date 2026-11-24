@@ -188,7 +188,8 @@ inline bool Save(cJSON* policy) {
 
 inline bool ToolEnabled(const std::string& tool) {
     Group group;
-    if (tool == "self.music.playlist" || tool == "self.music.play_file" || tool == "self.music.control") group = Group::Music;
+    if (tool == "self.music.playlist" || tool == "self.music.play_file" || tool == "self.music.control" ||
+        tool == "self.music.select") group = Group::Music;
     else if (tool == "self.audio_speaker.set_volume" || tool == "self.audio_speaker.adjust_volume") group = Group::Volume;
     else if (tool == "self.voice.enter_local_mode") group = Group::State;
     else if (tool == "self.disp.network" || tool == "self.radio.disable_wifi" || tool == "self.radio.status" || tool == "self.radio.bluetooth") group = Group::Network;

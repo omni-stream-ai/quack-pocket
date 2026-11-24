@@ -11,7 +11,7 @@ MUSIC_TOOLS = [
         "name": "play_file", "description": "用户点播歌曲时优先调用此工具，按歌名查找并播放存储卡上的 MP3。path 填用户说的歌名（文件名可省略扩展名），或包含扩展名的完整相对路径。",
         "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}}},
     {"type": "function", "function": {
-        "name": "control_music", "description": "控制本地播放。resume_music 续播音乐，resume_story 续播故事，可用 path 点播章节。repeat_music 循环指定歌曲，repeat_story 循环指定书或章节，循环时必须填写 path。",
+        "name": "control_music", "description": "控制本地播放。resume_music 续播音乐，resume_story 续播故事，可用 path 点播书名或章节名。repeat_music 循环指定歌曲，repeat_story 循环指定书或章节，循环时必须填写 path。",
         "parameters": {"type": "object", "properties": {"action": {"type": "string",
             "enum": ["resume_music", "resume_story", "repeat_music", "repeat_story", "sequential", "shuffle", "next", "stop"]},"path":{"type":"string"}}, "required": ["action"]}}}
 ]
@@ -47,12 +47,32 @@ WIFI_OFF = {"type": "function", "function": {
 SETUP_TOOL = {"type": "function", "function": {
     "name": "open_setup", "description": "用户明确要求重新配网或打开手机设置时使用。",
     "parameters": {"type": "object", "properties": {}}}}
+REMINDER_TOOL = {"type": "function", "function": {
+    "name": "manage_reminder",
+    "description": "在用户明确要求时设置、查询或取消设备闹钟和定时提醒。set 需填写 24 小时制 hour，"
+    "minute 默认为 0。date 可填 today、tomorrow、day_after_tomorrow 或 YYYY-MM-DD，省略表示下一次该时刻。"
+    "每天重复时 daily 填 true 并省略 date。message 只填要提醒的事项，普通闹钟留空。"
+    "例如明天早上九点提醒我吃早餐，填写 set、hour=9、date=tomorrow、message=吃早餐。"
+    "cancel 优先用用户指定的 id，也可按时间或事项取消。时间不明确时请先问清楚。",
+    "parameters": {"type": "object", "properties": {
+        "operation": {"type": "string", "enum": ["set", "list", "cancel"]},
+        "hour": {"type": "integer", "minimum": 0, "maximum": 23},
+        "minute": {"type": "integer", "minimum": 0, "maximum": 59},
+        "date": {"type": "string"}, "daily": {"type": "boolean"}, "message": {"type": "string"},
+        "id": {"type": "integer", "minimum": 1}}, "required": ["operation"]}}}
+
+REMINDER_REQUEST = re.compile(
+    r"闹钟|鬧鐘|定[时時]提醒|提醒(?:我|自己|一下|事[项項])|提醒.{0,5}(?:列表|有哪些)|"
+    r"(?:哪些|查[询詢看]?|取消|[删刪]除|[设設]置|[设設]个|添加|[关關][闭閉]).{0,20}提醒|"
+    r"叫醒|[点點].{0,5}叫我|\b(?:alarm|remind(?:er)?|wake me)\b", re.I,
+)
+REMINDER_TIME = re.compile(r"[零〇一二两兩三四五六七八九十0-9]+\s*[点點时時号號]|\b\d{1,2}:\d{2}\b")
 
 
 # Keep device actions out of ordinary conversation, particularly for small models.
 _MUSIC_REQUEST = re.compile(
-    r"听故事|聽故事|续播|續播|继续听|繼續聽|播放|点播|點播|点歌|點歌|放一?[首曲]|放歌|想听|想聽|听一首|聽一首|来一首|來一首|"
-    r"下一[首曲]|换一?[首歌]|換一?[首歌]|切歌|随机|隨機|顺序|順序|停止|停播|停歌|关掉音乐|關掉音樂|"
+    r"听故事|聽故事|讲故事|講故事|讲一?[个本段]|講一?[個本段]|续播|續播|继续听|繼續聽|播放|点播|點播|点歌|點歌|放一?[首曲]|放歌|想听|想聽|听一首|聽一首|来一首|來一首|"
+    r"下一[首曲]|换(?:成|一?[首歌本])|換(?:成|一?[首歌本])|切歌|循环|循環|随机|隨機|顺序|順序|停止|停播|停歌|关掉音乐|關掉音樂|"
     r"\.mp3\b|\b(play|shuffle|skip|next (?:song|track)|stop (?:the )?(?:music|playback))\b",
     re.IGNORECASE,
 )
@@ -116,6 +136,13 @@ class Provider:
             tools.append(SETUP_TOOL)
         if enabled.get("state", True) and re.search(r"本地模式|(?:返回|回到|回|去)首页|(?:退出|结束|关闭).{0,4}(?:通话|语音|小智)|local mode", phrase, re.I):
             tools.append(LOCAL_MODE_TOOL)
+        if settings.get("reminders") and (
+            REMINDER_REQUEST.search(phrase) or (
+                REMINDER_TIME.search(phrase) and len(messages) >= 4 and messages[-3]["role"] == "user"
+                and REMINDER_REQUEST.search(messages[-3]["content"])
+            )
+        ):
+            tools = [REMINDER_TOOL]
         protocol = settings.get("protocol", "chat_completions")
         model = settings["model"]
         stage = protocol if protocol in self.upstreams else "llm"

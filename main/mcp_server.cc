@@ -568,7 +568,12 @@ void McpServer::DoToolCall(int id, const std::string& tool_name, const cJSON* to
                 ReplyError(id, "Device in voice standby");
                 return;
             }
-            ReplyResult(id, (*tool_iter)->Call(arguments));
+            const auto session = Application::GetInstance().VoiceSession();
+            (*tool_iter)->Call(arguments, [this, id, session](McpValue value) {
+                auto& app = Application::GetInstance();
+                auto result = McpTool::FormatResult(std::move(value));
+                if (app.VoiceSession() == session) ReplyResult(id, result);
+            });
         } catch (const std::exception& e) {
             ESP_LOGE(TAG, "tools/call: %s", e.what());
             ReplyError(id, e.what());

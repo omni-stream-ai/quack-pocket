@@ -2,6 +2,7 @@
 #include "card_files.h"
 #include "pocket_checklist.h"
 #include "pocket_media.h"
+#include "pocket_reminders.h"
 #include "music_player.h"
 #include "music_sd.h"
 
@@ -28,10 +29,47 @@ bool AddProfile(cJSON* profile) {
     pocket_media::Config().Export(cJSON_AddObjectToObject(profile, "media"));
     cJSON_AddBoolToObject(profile, "sd_browser", true);
     cJSON_AddBoolToObject(profile, "sd_manage", true);
+    cJSON_AddTrueToObject(profile, "reminders");
+    if (auto* player = MusicPlayer::Active()) cJSON_AddBoolToObject(profile, "loudness", player->LoudnessEnabled());
     return true;
 }
 
 namespace {
+Result ManageReminder(const cJSON* data) {
+    pocket_reminders::Request request;
+    request.operation = pocket_media::Text(data, "operation");
+    auto& schedule = pocket_reminders::Schedule::Instance();
+    if (request.operation == "list") {
+        auto list = schedule.ListJson();
+        if (!list) return {false, "读取闹钟和提醒失败"};
+        return {true, std::move(*list), true};
+    }
+    if (request.operation == "edit" || request.operation == "cancel") {
+        auto* id = cJSON_GetObjectItemCaseSensitive(data, "id");
+        if (!cJSON_IsNumber(id) || id->valuedouble != id->valueint || id->valueint <= 0)
+            return {false, "请选择列表里的闹钟或提醒"};
+        request.id = id->valueint;
+    }
+    if (request.operation == "set" || request.operation == "edit") {
+        auto* hour = cJSON_GetObjectItemCaseSensitive(data, "hour");
+        auto* minute = cJSON_GetObjectItemCaseSensitive(data, "minute");
+        auto* date = cJSON_GetObjectItemCaseSensitive(data, "date");
+        auto* daily = cJSON_GetObjectItemCaseSensitive(data, "daily");
+        auto* message = cJSON_GetObjectItemCaseSensitive(data, "message");
+        if (!cJSON_IsNumber(hour) || hour->valuedouble != hour->valueint || hour->valueint < 0 ||
+            !cJSON_IsNumber(minute) || minute->valuedouble != minute->valueint || minute->valueint < 0 ||
+            !cJSON_IsString(date) || !cJSON_IsBool(daily) || !cJSON_IsString(message))
+            return {false, "请填写有效的日期和时间"};
+        request.hour = hour->valueint;
+        request.minute = minute->valueint;
+        request.date = date->valuestring;
+        request.repeat_daily = cJSON_IsTrue(daily);
+        request.message = message->valuestring;
+    }
+    auto result = schedule.Manage(request);
+    return {result.ok, std::move(result.message)};
+}
+
 struct CardLease {
     bool ready = music_sd_acquire() == ESP_OK;
     ~CardLease() { if (ready) music_sd_release(); }
@@ -260,6 +298,14 @@ Result Playlist(const std::string& operation, const std::string& name, std::stri
 std::optional<Result> Handle(const cJSON* data) {
     auto get = [&](const char* key) { return pocket_media::Text(data,key); };
     const std::string action = get("action");
+    if (action == "reminders") return ManageReminder(data);
+    if (action == "loudness") {
+        auto* enabled = cJSON_GetObjectItemCaseSensitive(data, "enabled");
+        auto* player = MusicPlayer::Active();
+        if (!cJSON_IsBool(enabled)) return Result{false, "请选择是否开启响度归一化"};
+        if (!player || !player->SetLoudnessEnabled(cJSON_IsTrue(enabled))) return Result{false, "保存播放设置失败"};
+        return Result{true, cJSON_IsTrue(enabled) ? "响度归一化已开启" : "响度归一化已关闭"};
+    }
     if (action == "playlist") return Playlist(get("operation"),get("name"),get("track"),true);
     if (action=="sd_reindex") {
         auto* player=MusicPlayer::Active();

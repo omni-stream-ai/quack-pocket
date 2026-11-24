@@ -150,22 +150,14 @@ music_title_result_t music_index_find_title(music_index_t *index, const char *ti
     return music_index_find_title_in(index, title, track, 0, index->count, keep_searching, context);
 }
 
-music_title_result_t music_index_find_title_in(music_index_t *index, const char *title, uint32_t *track,
-                                               uint32_t begin, uint32_t limit,
-                                               bool (*keep_searching)(void *), void *context)
+music_title_result_t music_index_scan(music_index_t *index, uint32_t begin, uint32_t limit,
+                                      bool (*visit)(uint32_t, const char *, void *),
+                                      bool (*keep_searching)(void *), void *context)
 {
-    if (begin > limit || limit > index->count) return MUSIC_TITLE_INDEX_ERROR;
-    size_t wanted = strlen(title);
-    if (wanted > 4 && !strcasecmp(title + wanted - 4, ".mp3")) wanted -= 4;
-    if (!wanted || !index->file) return MUSIC_TITLE_MISSING;
-
+    if (!index->file || begin > limit || limit > index->count) return MUSIC_TITLE_INDEX_ERROR;
     enum { batch_size = 128 };
     unsigned char offsets[4 * (batch_size + 1)];
     char path[MUSIC_PATH_CAPACITY];
-    bool partial = false;
-    bool partial_ambiguous = false;
-    bool matched = false;
-    uint32_t match = 0;
     for (uint32_t first = begin; first < limit; first += batch_size) {
         if (keep_searching && !keep_searching(context)) return MUSIC_TITLE_CANCELLED;
         uint32_t count = limit - first;
@@ -183,29 +175,68 @@ music_title_result_t music_index_find_title_in(music_index_t *index, const char 
                 fread(path, 1, length, index->file) != length) return MUSIC_TITLE_INDEX_ERROR;
             start = end;
             path[length] = 0;
-            char *slash = strrchr(path, '/');
-            const char *name = slash ? slash + 1 : path;
-            size_t len = strlen(name);
-            if (len < 4 || strcasecmp(name + len - 4, ".mp3")) continue;
-            size_t stem = len - 4;
-            if (stem == wanted && !strncasecmp(name, title, wanted)) {
-                if (matched) return MUSIC_TITLE_AMBIGUOUS;
-                matched = true;
-                match = first + i;
-            } else if (!matched && !partial_ambiguous && wanted < stem) {
-                for (size_t pos = 0; pos <= stem - wanted; ++pos) {
-                    if (!strncasecmp(name + pos, title, wanted)) {
-                        partial_ambiguous = partial;
-                        partial = true;
-                        match = first + i;
-                        break;
-                    }
-                }
-            }
+            if (!visit(first + i, path, context)) return MUSIC_TITLE_FOUND;
         }
     }
-    if (!matched && partial_ambiguous) return MUSIC_TITLE_AMBIGUOUS;
-    if (!matched && !partial) return MUSIC_TITLE_MISSING;
-    *track = match;
+    return MUSIC_TITLE_FOUND;
+}
+
+int music_name_match(const char *name, size_t length, const char *title, size_t wanted)
+{
+    if (!wanted || wanted > length) return 0;
+    if (length == wanted) return strncasecmp(name, title, wanted) == 0 ? 2 : 0;
+    for (size_t pos = 0; pos <= length - wanted; ++pos) {
+        if (!strncasecmp(name + pos, title, wanted)) return 1;
+    }
+    return 0;
+}
+
+struct title_search {
+    const char *title;
+    size_t wanted;
+    uint32_t track;
+    int rank;
+    bool ambiguous;
+    bool (*keep_searching)(void *);
+    void *context;
+};
+
+static bool visit_title(uint32_t id, const char *path, void *context)
+{
+    struct title_search *search = context;
+    const char *slash = strrchr(path, '/');
+    const char *name = slash ? slash + 1 : path;
+    size_t len = strlen(name);
+    if (len < 4 || strcasecmp(name + len - 4, ".mp3")) return true;
+    if (len - 4 != search->wanted && (search->rank == 2 || search->ambiguous)) return true;
+    int rank = music_name_match(name, len - 4, search->title, search->wanted);
+    if (!rank || rank < search->rank) return true;
+    search->ambiguous = rank == search->rank;
+    search->rank = rank;
+    search->track = id;
+    return rank != 2 || !search->ambiguous;
+}
+
+static bool continue_title_search(void *context)
+{
+    struct title_search *search = context;
+    return !search->keep_searching || search->keep_searching(search->context);
+}
+
+music_title_result_t music_index_find_title_in(music_index_t *index, const char *title, uint32_t *track,
+                                               uint32_t begin, uint32_t limit,
+                                               bool (*keep_searching)(void *), void *context)
+{
+    if (begin > limit || limit > index->count) return MUSIC_TITLE_INDEX_ERROR;
+    size_t wanted = strlen(title);
+    if (wanted > 4 && !strcasecmp(title + wanted - 4, ".mp3")) wanted -= 4;
+    if (!wanted || !index->file) return MUSIC_TITLE_MISSING;
+    struct title_search search = { .title = title, .wanted = wanted,
+                                   .keep_searching = keep_searching, .context = context };
+    music_title_result_t result = music_index_scan(index, begin, limit, visit_title, continue_title_search, &search);
+    if (result != MUSIC_TITLE_FOUND) return result;
+    if (search.ambiguous) return MUSIC_TITLE_AMBIGUOUS;
+    if (!search.rank) return MUSIC_TITLE_MISSING;
+    *track = search.track;
     return MUSIC_TITLE_FOUND;
 }

@@ -111,7 +111,8 @@ public:
 
     void InterruptMusicForWake();
     void EndWakeInterruption();
-    bool IsMusicInterrupted() const { return wake_music_hold_.load(); }
+    void HoldMusicForReminder(bool hold);
+    bool IsMusicInterrupted() const { return wake_music_hold_.load() || reminder_music_hold_.load(); }
     bool PushMusicPcm(std::vector<int16_t>& pcm, bool protect_wake = false);
     bool PushPacketToDecodeQueue(std::unique_ptr<AudioStreamPacket> packet, bool wait = false);
     std::unique_ptr<AudioStreamPacket> PopPacketFromSendQueue();
@@ -147,6 +148,8 @@ private:
     TaskHandle_t opus_codec_task_handle_ = nullptr;
     std::mutex audio_queue_mutex_;
     std::atomic<bool> wake_music_hold_{false};
+    std::atomic<bool> reminder_music_hold_{false};
+    size_t DropQueuedMusic();
     bool music_in_output_ = false;
     uint32_t interrupted_output_us_ = 0; // Protected by audio_queue_mutex_.
     uint32_t decoder_generation_ = 0; // Protected by audio_queue_mutex_.

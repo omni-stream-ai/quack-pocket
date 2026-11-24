@@ -47,6 +47,7 @@ public:
     virtual NetworkInterface* GetNetwork() = 0;
     virtual void HandleVoiceTranscript(const std::string&) {}
     virtual void CheckVoiceStandby() {}
+    virtual void CheckReminders() {}
     virtual bool WakeFromVoiceStandby() { return false; }
     virtual void StartOfflineVoiceCommand() {}
     virtual bool FirmwareUpdateActive() const { return false; }

@@ -8,6 +8,29 @@ from scripts.index_music import write_index
 
 
 class MusicCatalog(unittest.TestCase):
+    def test_voice_media_candidates(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            obj = folder / "reader.o"
+            reader = folder / "select"
+            board = "main/boards/waveshare-s3-epaper-1.54"
+            subprocess.run(["cc", "-std=gnu11", "-Wall", "-Wextra", "-Werror", "-c",
+                            "main/music/music_index.c", "-o", obj], check=True)
+            subprocess.run(["c++", "-std=c++20", "-Wall", "-Wextra", "-Werror", "-I", "main", "-I", board,
+                            "tests/media_selection_test.cc", f"{board}/media_selection.cc", obj, "-o", reader], check=True)
+            card = folder / "card"
+            for path in ("音乐/周杰伦/晴天.mp3", "音乐/钢琴曲/晴天.mp3", "音乐/儿歌/晴天娃娃.mp3",
+                         "音乐/A/童谣.mp3", "音乐/B/童谣.mp3", "音乐/C/童谣.mp3", "音乐/现场/童谣.mp3",
+                         "晨光.mp3", "音乐/现场/晨光.mp3",
+                         "故事/原版/格林童话/第一章.mp3", "故事/少儿/格林童话/第一章.mp3",
+                         "故事/少儿/格林童话/第二章.mp3", "故事/少儿/格林童话/附录/朗读.mp3",
+                         "故事/少儿/格林童话/第三章.mp3"):
+                target = card / path
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(bytes(10))
+            write_index(card)
+            subprocess.run([reader, card / "omni.idx"], check=True)
+
     def test_sorted_paths_and_interrupted_rescan(self):
         with tempfile.TemporaryDirectory() as tmp:
             folder = Path(tmp)

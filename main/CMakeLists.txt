@@ -62,7 +62,11 @@ if(NOT EXISTS "${WAVESHARE_FONT}")
 endif()
 list(APPEND SOURCES "${WAVESHARE_FONT}")
 
-file(GLOB BOARD_SOURCES
+# ESP-IDF also reads component files in script mode when resolving dependencies.
+if(NOT CMAKE_SCRIPT_MODE_FILE)
+    set(BOARD_GLOB_OPTIONS CONFIGURE_DEPENDS)
+endif()
+file(GLOB BOARD_SOURCES ${BOARD_GLOB_OPTIONS}
     ${CMAKE_CURRENT_SOURCE_DIR}/boards/${BOARD_TYPE}/*.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/boards/${BOARD_TYPE}/*.c
 )
@@ -190,7 +194,8 @@ endif()
 
 file(GLOB COMMON_SOUNDS ${CMAKE_CURRENT_SOURCE_DIR}/assets/common/*.ogg)
 
-idf_component_register(SRCS ${SOURCES} "music/music_index.c" "music/mp3_stream.c" "music/build_index.cc" "music/music_resampler.cc" "voice/voice_profile.cc"
+idf_component_register(SRCS ${SOURCES} "music/music_index.c" "music/mp3_stream.c" "music/build_index.cc"
+                       "music/music_resampler.cc" "music/music_loudness.cc" "voice/voice_profile.cc"
                     EMBED_FILES ${LANG_SOUNDS} ${COMMON_SOUNDS}
                     INCLUDE_DIRS ${INCLUDE_DIRS}
                     WHOLE_ARCHIVE

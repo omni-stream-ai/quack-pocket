@@ -47,7 +47,10 @@ public:
 };
 
 // 添加类型别名
-using ReturnValue = std::variant<bool, int, std::string, cJSON*, ImageContent*>;
+using McpValue = std::variant<bool, int, std::string, cJSON*, ImageContent*>;
+using McpReply = std::function<void(McpValue)>;
+using DeferredMcpResult = std::function<void(McpReply)>;
+using ReturnValue = std::variant<McpValue, DeferredMcpResult>;
 
 enum PropertyType {
     kPropertyTypeBoolean,
@@ -269,8 +272,16 @@ public:
         return result;
     }
 
-    std::string Call(const PropertyList& properties) {
-        ReturnValue return_value = callback_(properties);
+    void Call(const PropertyList& properties, McpReply reply) {
+        auto result = callback_(properties);
+        if (auto* deferred = std::get_if<DeferredMcpResult>(&result)) {
+            (*deferred)(std::move(reply));
+        } else {
+            reply(std::move(std::get<McpValue>(result)));
+        }
+    }
+
+    static std::string FormatResult(McpValue return_value) {
         // 返回结果
         cJSON* result = cJSON_CreateObject();
         cJSON* content = cJSON_CreateArray();

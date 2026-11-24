@@ -16,11 +16,28 @@ from aiohttp import web
 import webrtcvad
 
 from .opus import AudioCodec
-from .provider import Provider
+from .provider import Provider, REMINDER_REQUEST
 from .realtime import QwenRealtime
 
-SYSTEM = {"role": "system", "content": "你是便携语音助手。使用用户的语言简短回答。用户提到歌单或播放列表时优先使用 playlist 管理或按名称播放歌单。用户点播指定歌曲时优先调用 play_file 查找并播放存储卡上的歌曲，无需用户说明“本地”。用户只要求播放音乐而未指定歌曲时，调用 control_music 的 resume_music 续播。播放故事用 resume_story，未指定章节时续播，指定章节时填 path。用户要求循环指定歌曲或故事时，用 control_music 的 repeat_music 或 repeat_story，path 填指定的歌名、书名或章节名。"}
+SYSTEM = {"role": "system", "content": "你是便携语音助手。使用用户的语言简短回答。用户提到歌单或播放列表时优先使用 playlist 管理或按名称播放歌单。用户点播指定歌曲时优先调用 play_file 查找并播放存储卡上的歌曲，无需用户说明“本地”。用户只要求播放音乐而未指定歌曲时，调用 control_music 的 resume_music 续播。播放故事用 resume_story，指定书名或章节名时填 path，否则续播。用户要求循环指定歌曲或故事时，用 control_music 的 repeat_music 或 repeat_story，path 填指定的歌名、书名或章节名。"}
 LOG = logging.getLogger("omni.voice")
+REMINDER_INSTRUCTION = "用户要求设置、查询或取消闹钟和定时提醒时，使用设备工具。时间不明确时先询问。只根据设备返回的结果确认操作。"
+
+_NEW_MEDIA_REQUEST = re.compile(
+    r"^(?:请|請|帮我|幫我|小鸭[，, ]*)?(?:播放|点播|點播|点歌|點歌|循环|循環|换|換|"
+    r"放一?[首曲]|来一首|來一首|讲一?[个本段]|講一?[個本段]|听故事|聽故事|续播|續播|"
+    r"停止|停播|停歌|(?:退出|结束|結束|关闭|關閉).{0,4}(?:语音|語音|通话|通話)|"
+    r"(?:返回|回到|回)首页|(?:play|stop|shuffle|skip)\b)", re.I,
+)
+_NUMBERED_CHOICE = re.compile(
+    r"^(?:(?:请|請)?(?:播放|我想听|我想聽|我要听|我要聽|选|選|播|听|聽)\s*)?"
+    r"第?[一二两兩三四五六七八九1-9１-９](?:个|個|项|項|首|本|号|號)?$",
+)
+_OTHER_DEVICE_REQUEST = re.compile(
+    r"^(?:请|請|帮我|幫我)?(?:音量|调.{0,3}音量|調.{0,3}音量|[大小][声聲]一点|[静靜]音|"
+    r"(?:打开|打開|关闭|關閉|开启|開啟|关掉|關掉).{0,4}(?:手机设置|手機設置|[蓝藍]牙|[无無][线線]网|Wi-Fi)|"
+    r"重新配[网網])", re.I,
+)
 
 
 def model_settings(hello):
@@ -34,8 +51,11 @@ def model_settings(hello):
     if not isinstance(values, dict) or not values.get("model"):
         raise ValueError("missing model settings")
     result = {}
-    if isinstance(hello.get("features"), dict) and hello["features"].get("environment") is True:
-        result["environment"] = True
+    features = hello.get("features")
+    if isinstance(features, dict):
+        for key in ("environment", "media_choice", "reminders"):
+            if features.get(key) is True:
+                result[key] = True
     for key, max_bytes in (("model", 96), ("asr", 96), ("tts", 96), ("voice", 64)):
         value = values.get(key, "")
         if (not isinstance(value, str) or len(value.encode("utf-8")) > max_bytes
@@ -56,15 +76,34 @@ def model_settings(hello):
         skills = controls.get("skills", [])
         if not isinstance(skills, list):
             raise ValueError("invalid voice skills")
-        result["local_phrases"] = {s["phrase"] for s in skills if isinstance(s, dict) and
-                                   isinstance(s.get("phrase"), str) and isinstance(s.get("action"), str)
-                                   and result["voice_controls"].get("music" if s["action"] == "story" else s["action"])}
+        local = {s["phrase"]: s for s in skills if isinstance(s, dict) and
+                 isinstance(s.get("phrase"), str) and isinstance(s.get("action"), str)
+                 and result["voice_controls"].get("music" if s["action"] == "story" else s["action"])}
+        result["local_phrases"] = set(local)
+        if result.get("media_choice"):
+            result["local_media"] = {phrase: skill for phrase, skill in local.items()
+                                     if skill["action"] in ("music", "story") and isinstance(skill.get("argument"), str)
+                                     and 0 < len(skill["argument"].encode()) < 1024}
     return result
 
 
 def music_call(call):
     name = call["function"]["name"]
     args = json.loads(call["function"]["arguments"])
+    if name == "manage_reminder" and isinstance(args, dict):
+        keys = {"operation", "hour", "minute", "date", "daily", "message", "id"}
+        op = args.get("operation")
+        date = args.get("date", "")
+        message = args.get("message", "")
+        if (set(args) <= keys and op in ("set", "list", "cancel") and (op != "set" or "hour" in args)
+                and all(key not in args or (type(args[key]) is int and low <= args[key] <= high)
+                        for key, low, high in (("hour", 0, 23), ("minute", 0, 59), ("id", 1, 2147483647)))
+                and isinstance(date, str)
+                and re.fullmatch(r"(?:today|tomorrow|day_after_tomorrow|[0-9]{4}-[0-9]{2}-[0-9]{2})?", date)
+                and type(args.get("daily", False)) is bool
+                and isinstance(message, str) and len(message.encode()) <= 144
+                and not any(ord(char) < 32 or ord(char) == 127 for char in message)):
+            return "self.reminder.manage", args
     if name == "playlist" and isinstance(args, dict) and set(args) <= {"operation", "name", "track"}:
         op, title, track = (args.get(key, "") for key in ("operation", "name", "track"))
         if (op in ("list", "create", "delete", "add", "remove", "play")
@@ -78,7 +117,7 @@ def music_call(call):
     if song or named_control:
         path = args["path"]
         if isinstance(path, str) and path.strip() and len(path.encode()) < 1024 and (
-            "/" not in path or path.lower().endswith(".mp3") or args.get("action") == "repeat_story"
+            "/" not in path or path.lower().endswith(".mp3") or args.get("action") in ("resume_story", "repeat_story")
         ) and all(
             item not in ("", ".", "..") for item in path.split("/")
         ) and not any(ord(c) < 32 or c in "\\:" for c in path):
@@ -128,6 +167,8 @@ class Conversation:
         self.turn = 0
         self.pending_device_reply = None
         self.pending_control = None
+        self.pending_media_reply = None
+        self.choosing_media = False
         self.environment_request = None
         self.environment = None
         self.reset_input()
@@ -141,6 +182,58 @@ class Conversation:
 
     async def send(self, kind, **fields):
         await self.socket.send_json({"session_id": self.id, "type": kind, **fields})
+
+    async def call_device(self, name, arguments, user=None):
+        self.turn += 1
+        if name in ("self.environment.status", "self.music.playlist", "self.radio.status", "self.radio.bluetooth",
+                    "self.reminder.manage"):
+            self.pending_device_reply = (self.turn, user if name == "self.reminder.manage" else None)
+        if name.startswith("self.audio_speaker.") or arguments.get("action") == "stop":
+            self.pending_control = self.turn
+        if name in ("self.music.play_file", "self.music.select") or (
+            name == "self.music.control" and arguments.get("action") != "stop"
+        ):
+            self.pending_media_reply = self.turn
+        if name.startswith("self.music.") and name != "self.music.select":
+            self.choosing_media = False
+        await self.send("mcp", payload={"jsonrpc": "2.0", "id": self.turn, "method": "tools/call",
+            "params": {"name": name, "arguments": arguments}})
+
+    async def speak(self, text):
+        self.speaking = True
+        await self.send("tts", state="start")
+        await self.send("tts", state="sentence_start", text=text)
+        await self.provider.speak(text, self.settings, self.codec, self.socket)
+        await self.send("tts", state="stop")
+        self.speaking = False
+
+    async def media_reply(self, result):
+        self.pending_media_reply = None
+        self.choosing_media = False
+        content = result.get("result", {}).get("content", [])
+        text = content[0].get("text", "") if content else ""
+        if text == "true":
+            return
+        if isinstance(text, str) and text.startswith("{"):
+            data = json.loads(text)
+            self.choosing_media = data.get("status") in ("choose", "retry")
+            text = data.get("prompt")
+        if not isinstance(text, str) or not text or text == "false":
+            text = "设备暂时无法播放，请再试一次。"
+        await self.cancel()
+        self.job = asyncio.create_task(self.speak_device_reply(text[:4096]))
+
+    async def speak_device_reply(self, text):
+        try:
+            await self.speak(text)
+        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as error:
+            await self.turn_failed(error)
+
+    async def turn_failed(self, error):
+        LOG.warning("Voice turn failed (%s)", type(error).__name__)
+        if not self.socket.closed:
+            await self.send("alert", status="语音服务", message="对话失败，请检查网关和模型设置", emotion="sad")
+            await self.socket.close()
 
     async def cancel(self):
         if self.job:
@@ -187,6 +280,11 @@ class Conversation:
         if not isinstance(message, dict):
             raise ValueError("expected control object")
         kind, state = message.get("type"), message.get("state")
+        if kind == "mcp" and self.pending_media_reply is not None:
+            result = message.get("payload")
+            if isinstance(result, dict) and result.get("id") == self.pending_media_reply:
+                await self.media_reply(result)
+                return
         if kind == "mcp" and self.environment_request is not None:
             payload = message.get("payload", {})
             if payload.get("id") == self.environment_request:
@@ -201,7 +299,8 @@ class Conversation:
                 return
         if kind == "mcp" and self.pending_device_reply is not None:
             result = message.get("payload", {})
-            if result.get("id") == self.pending_device_reply:
+            if result.get("id") == self.pending_device_reply[0]:
+                _, user = self.pending_device_reply
                 self.pending_device_reply = None
                 content = result.get("result", {}).get("content", [])
                 text = content[0].get("text", "") if content else "设备操作失败"
@@ -210,6 +309,8 @@ class Conversation:
                 await self.send("tts", state="sentence_start", text=text)
                 await self.provider.speak(text, self.settings, self.codec, self.socket)
                 await self.send("tts", state="stop")
+                if user:
+                    self.history.extend((user, {"role": "assistant", "content": text}))
         elif kind == "mcp" and self.pending_control is not None:
             result = message.get("payload")
             if isinstance(result, dict) and result.get("id") == self.pending_control and ("result" in result or "error" in result):
@@ -221,6 +322,7 @@ class Conversation:
             if self.realtime and interrupted:
                 await self.realtime.close()
             self.speaking = False
+            self.pending_media_reply = None
             self.reset_input()
             self.listening = True
             if self.realtime and self.settings.get("environment"):
@@ -239,6 +341,7 @@ class Conversation:
                 self.speaking = False
                 await self.send("tts", state="stop")
             self.listening = False
+            self.pending_media_reply = None
             self.reset_input()
 
     async def respond(self, pcm, size):
@@ -252,40 +355,47 @@ class Conversation:
             if not text:
                 await self.socket.close()
                 return
+            phrase = text.rstrip("。！？.!?")
+            local_media = self.settings.get("local_media", {}).get(phrase)
+            if local_media:
+                await self.send("stt", text=text, handle_locally=False)
+                path = local_media["argument"]
+                if local_media["action"] == "story":
+                    await self.call_device("self.music.control", {"action": "resume_story", "path": path})
+                else:
+                    await self.call_device("self.music.play_file", {"path": path})
+                return
             await self.send("stt", text=text)
-            if text.rstrip("。！？.!?") in self.settings.get("local_phrases", ()):
+            if phrase in self.settings.get("local_phrases", ()):
                 await self.socket.close()
                 return
+            if self.choosing_media:
+                new_request = _NEW_MEDIA_REQUEST.search(phrase) and not _NUMBERED_CHOICE.fullmatch(phrase)
+                if new_request:
+                    self.choosing_media = False
+                elif not _OTHER_DEVICE_REQUEST.search(phrase) and not (
+                    self.settings.get("reminders") and REMINDER_REQUEST.search(phrase)
+                ):
+                    await self.call_device("self.music.select", {"choice": phrase})
+                    return
             user = {"role": "user", "content": text}
-            answer = await self.provider.chat([SYSTEM if self.settings.get("voice_controls", {}).get("music", True)
-                                               else {"role": "system", "content": "你是便携语音助手。使用用户的语言简短回答。"},
-                                               *self.history, user], self.settings)
+            system = SYSTEM if self.settings.get("voice_controls", {}).get("music", True) else {
+                "role": "system", "content": "你是便携语音助手。使用用户的语言简短回答。"}
+            if self.settings.get("reminders"):
+                system = {**system, "content": system["content"] + REMINDER_INSTRUCTION}
+            answer = await self.provider.chat([system, *self.history, user], self.settings)
             calls = answer.get("tool_calls")
             if calls:
                 name, arguments = music_call(calls[0])
-                self.turn += 1
-                if name in ("self.environment.status", "self.music.playlist", "self.radio.status", "self.radio.bluetooth"):
-                    self.pending_device_reply = self.turn
-                if name.startswith("self.audio_speaker.") or arguments.get("action") == "stop":
-                    self.pending_control = self.turn
-                await self.send("mcp", payload={"jsonrpc": "2.0", "id": self.turn, "method": "tools/call",
-                    "params": {"name": name, "arguments": arguments}})
+                await self.call_device(name, arguments, user)
                 return
             text = answer.get("content")
             if not isinstance(text, str) or not text.strip() or len(text) > 4096:
                 raise ValueError("empty or oversized model response")
-            self.speaking = True
-            await self.send("tts", state="start")
-            await self.send("tts", state="sentence_start", text=text)
-            await self.provider.speak(text, self.settings, self.codec, self.socket)
-            await self.send("tts", state="stop")
-            self.speaking = False
+            await self.speak(text)
             self.history.extend((user, {"role": "assistant", "content": text}))
         except (aiohttp.ClientError, asyncio.TimeoutError, ValueError, KeyError, IndexError, TypeError) as error:
-            LOG.warning("Voice turn failed (%s)", type(error).__name__)
-            if not self.socket.closed:
-                await self.send("alert", status="语音服务", message="对话失败，请检查网关和模型设置", emotion="sad")
-                await self.socket.close()
+            await self.turn_failed(error)
 
     async def run(self):
         try:

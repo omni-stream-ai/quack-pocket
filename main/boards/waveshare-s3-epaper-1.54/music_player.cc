@@ -2,6 +2,7 @@
 #include "music_hil.h"
 #endif
 #include "music_player.h"
+#include "media_selection.h"
 #include "offline_commands.h"
 #include "pocket_media.h"
 #include "pocket_memo.h"
@@ -17,6 +18,7 @@
 
 #include <esp_random.h>
 #include <esp_log.h>
+#include "music/music_loudness.h"
 #include "music/music_resampler.h"
 
 #include "application.h"
@@ -50,6 +52,7 @@ uint32_t NextTrack(uint32_t current, uint32_t count, bool shuffle) {
 
 bool MusicPlayer::Start(std::function<void()> power_off) {
     power_off_ = std::move(power_off);
+    loudness_enabled_ = !cJSON_IsFalse(pocket_media::Load("loudness").get());
     commands_ = xQueueCreate(3, sizeof(Command));
     if (!commands_) {
         return false;
@@ -81,12 +84,32 @@ bool MusicPlayer::Request(MusicAction action, const char *path) {
     return xQueueSend(commands_, &command, 0) == pdTRUE;
 }
 
+bool MusicPlayer::RequestVoice(MusicAction action, const std::string& path, uint32_t session, VoiceReply reply) {
+    if (powering_off_ || !commands_ || path.size() >= MUSIC_PATH_CAPACITY) return false;
+    auto voice = std::make_unique<VoiceRequest>(VoiceRequest{session, std::move(reply)});
+    Command command{action, {}, voice.get()};
+    memcpy(command.path, path.c_str(), path.size() + 1);
+    if (xQueueSend(commands_, &command, 0) != pdTRUE) return false;
+    voice.release();
+    return true;
+}
+
+bool MusicPlayer::SetLoudnessEnabled(bool enabled) {
+    std::lock_guard<std::mutex> guard(pocket_media::lock);
+    pocket_media::Json value(cJSON_CreateBool(enabled), cJSON_Delete);
+    if (!value || !pocket_media::Save("loudness", value.get())) return false;
+    loudness_enabled_ = enabled;
+    return true;
+}
+
 void MusicPlayer::Run() {
     music_index_t index{};
     std::unique_ptr<FILE, int(*)(FILE*)> file(nullptr, fclose);
     std::unique_ptr<mp3_stream_t, decltype(&mp3_stream_close)> decoder(nullptr, mp3_stream_close);
     std::vector<int16_t> pending;
     MusicResampler resampler;
+    MusicLoudness loudness(AUDIO_OUTPUT_SAMPLE_RATE);
+    bool normalize = LoudnessEnabled();
     int input_rate = 0;
     uint32_t track = 0;
     std::vector<uint32_t> playlist;
@@ -148,6 +171,7 @@ void MusicPlayer::Run() {
         decoder.reset();
         file.reset();
         pending.clear();
+        loudness.Reset();
         input_rate = 0;
         announce = true;
         replaying_track = false;
@@ -182,6 +206,16 @@ void MusicPlayer::Run() {
         vTaskDelay(1);
     };
 
+    struct Selection {
+        uint32_t session;
+        MusicAction action;
+        std::string title;
+        std::vector<std::string> keywords;
+        std::vector<media_selection::Candidate> candidates;
+    };
+    std::optional<Selection> selection;
+    auto& app = Application::GetInstance();
+
     for (;;) {
         Command command{};
         bool received = true;
@@ -193,15 +227,46 @@ void MusicPlayer::Run() {
             received = xQueueReceive(commands_, &command, playing ? 0 : portMAX_DELAY) == pdTRUE;
         }
         busy_ = true;
+        std::unique_ptr<VoiceRequest> voice(command.voice);
+        auto voice_current = [&] { return !voice || voice->session == app.VoiceSession(); };
+        auto reply = [&](VoiceResult result, std::string message = {}) {
+            if (voice && voice_current()) {
+                voice->reply(result, std::move(message));
+                if (result == VoiceResult::Playing) app.FinishChatForMusic(voice->session);
+            }
+        };
+        auto report = [&](const std::string& message) {
+            if (voice) reply(VoiceResult::Message, message);
+            else Show(message);
+        };
         const bool background = received && command.action == MusicAction::Prepare;
         if (powering_off_.load()) {
             checkpoint();
             release();
+            while (xQueueReceive(commands_, &command, 0) == pdTRUE) delete command.voice;
             music_sd_shutdown();
             power_off_();
             vTaskSuspend(nullptr);
         }
         if (received) {
+            if (!voice_current()) continue;
+            const bool selecting = command.action == MusicAction::VoiceSelect;
+            if (!selecting || (selection && selection->session != app.VoiceSession())) selection.reset();
+            std::string choice;
+            if (selecting) {
+                if (!selection) {
+                    report("当前没有待选择的歌曲或故事");
+                    continue;
+                }
+                choice = media_selection::ChoiceKeyword(command.path);
+                if (choice == "取消" || choice == "取消选择" || choice == "取消選擇" || choice == "算了" ||
+                    choice == "不用了" || choice == "不听了" || choice == "不聽了" || choice == "不播了" || choice == "cancel") {
+                    selection.reset();
+                    report("已取消选择");
+                    continue;
+                }
+                command.action = selection->action;
+            }
             if (command.action == MusicAction::PlaybackSettings) {
                 if (index.file) {
                     auto old_repeat = repeat;
@@ -282,9 +347,9 @@ void MusicPlayer::Run() {
                 if (mounted != ESP_OK) {
                     ESP_LOGW("music_sd", "Mount failed: %s", esp_err_to_name(mounted));
                     if (!background) {
-                        if (mounted == ESP_ERR_NO_MEM) Show("设备内存不足，无法打开 SD 卡");
-                        else if (mounted == ESP_ERR_TIMEOUT) Show("SD 卡未响应，请检查插卡");
-                        else Show(std::string("SD 卡挂载失败：") + esp_err_to_name(mounted));
+                        if (mounted == ESP_ERR_NO_MEM) report("设备内存不足，无法打开 SD 卡");
+                        else if (mounted == ESP_ERR_TIMEOUT) report("SD 卡未响应，请检查插卡");
+                        else report(std::string("SD 卡挂载失败：") + esp_err_to_name(mounted));
                     }
                     continue;
                 }
@@ -311,7 +376,7 @@ void MusicPlayer::Run() {
                         release();
                         if (powering_off_.load()) continue;
                         ESP_LOGW("music_sd", "Could not build or reopen index");
-                        if (!background) Show("曲库扫描失败，请检查卡空间或在电脑上生成索引");
+                        if (!background) report("曲库扫描失败，请检查卡空间或在电脑上生成索引");
                         continue;
                     }
                 }
@@ -322,7 +387,7 @@ void MusicPlayer::Run() {
                 }
                 if (!index.count) {
                     release();
-                    Show("存储卡里没有 MP3，加歌后请三击 确认键");
+                    report("存储卡里没有 MP3，加歌后请三击 确认键");
                     continue;
                 }
             }
@@ -334,7 +399,10 @@ void MusicPlayer::Run() {
             bool repeat_story = command.action == MusicAction::RepeatStory;
             bool repeat_file = command.action == MusicAction::RepeatFile;
             bool play_file = repeat_file || command.action == MusicAction::PlayFile;
-            if ((repeat_story || repeat_file) && !command.path[0]) continue;
+            if ((repeat_story || repeat_file) && !selecting && !command.path[0]) {
+                report("请指定要循环播放的歌名、书名或章节名");
+                continue;
+            }
             bool select_story_book = command.action == MusicAction::StoryBook || command.action == MusicAction::StoryRestart;
             bool start_story = repeat_story || command.action == MusicAction::Story || select_story_book || command.action == MusicAction::StoryChapter;
             bool resume_music = command.action == MusicAction::Play;
@@ -343,53 +411,61 @@ void MusicPlayer::Run() {
             uint32_t low, high;
             if (!music_index_directory(&index, (use_story ? config.stories : config.music).c_str(), &low, &high)
                 || low == high) {
-                Show("所选目录没有已索引的 MP3，请核对路径并刷新曲库");
+                report("所选目录没有已索引的 MP3，请核对路径并刷新曲库");
                 continue;
             }
-            std::string story_book;
-            const std::string_view target(command.path);
-            if (repeat_story && (target.size() < 4 || strcasecmp(target.data() + target.size() - 4, ".mp3") != 0)) {
-                const bool full_path = target.find('/') != std::string_view::npos;
-                uint32_t scan_first = low, scan_end = high;
-                if (full_path && !music_index_directory(&index, command.path, &scan_first, &scan_end)) {
-                    Show("书目索引读取失败");
+            if (voice && (selecting || (command.path[0] && (play_file || start_story)))) {
+                Selection query = selecting ? std::move(*selection) :
+                    Selection{voice->session, command.action, command.path, {}, {}};
+                selection.reset();
+                const bool choosing = selecting && !query.candidates.empty();
+                const auto number = choosing ? media_selection::ChoiceNumber(choice) : 0;
+                if (selecting && !choosing && !choice.empty()) query.title = choice;
+                media_selection::Candidate candidate{};
+                if (number && number <= media_selection::visible_count && number <= query.candidates.size()) {
+                    candidate = std::move(query.candidates[number - 1]);
+                } else if (choosing && (number || choice.empty())) {
+                    reply(VoiceResult::Choice, media_selection::Prompt(query.candidates, start_story, true));
+                    selection = std::move(query);
                     continue;
-                }
-                scan_first = std::max(scan_first, low);
-                scan_end = std::min(scan_end, high);
-                char candidate[MUSIC_PATH_CAPACITY];
-                for (uint32_t id = scan_first; id < scan_end; ++id) {
-                    if (!music_index_get(&index, id, candidate)) {
-                        Show("书目索引读取失败");
-                        story_book.clear();
-                        select_story_book = true;
-                        break;
-                    }
-                    auto folder = pocket_media::StoryBook(candidate);
-                    auto name = std::string_view(folder).substr(full_path ? 0 : folder.rfind('/') + 1);
-                    if (name == target) {
-                        if (select_story_book && story_book != folder) {
-                            Show("找到多本同名故事，请指定文件夹路径");
-                            story_book.clear();
-                            break;
-                        }
-                        select_story_book = true;
-                        story_book = std::move(folder);
-                        if (full_path) break;
-                    }
-                    if ((id - scan_first) % 32 == 31) {
-                        if (powering_off_.load() || uxQueueMessagesWaiting(commands_)) break;
+                } else {
+                    auto keywords = query.keywords;
+                    if (choosing && std::find(keywords.begin(), keywords.end(), choice) == keywords.end())
+                        keywords.push_back(choice);
+                    auto matches = media_selection::Find(index, low, high, start_story, query.title, keywords, [&] {
                         vTaskDelay(1);
+                        return voice_current() && !powering_off_ && !uxQueueMessagesWaiting(commands_);
+                    });
+                    if (matches.status == MUSIC_TITLE_FOUND) {
+                        candidate = std::move(matches.candidates.front());
+                    } else if (matches.status == MUSIC_TITLE_AMBIGUOUS || (choosing && matches.status == MUSIC_TITLE_MISSING)) {
+                        bool retry = matches.status == MUSIC_TITLE_MISSING;
+                        if (!retry) {
+                            query.candidates = std::move(matches.candidates);
+                            query.keywords = std::move(keywords);
+                        }
+                        reply(VoiceResult::Choice, media_selection::Prompt(query.candidates, start_story, retry));
+                        selection = std::move(query);
+                        continue;
+                    } else if (matches.status == MUSIC_TITLE_MISSING) {
+                        reply(VoiceResult::Retry, start_story ? "没有找到这本故事或章节，请再说一次书名或章节名。" :
+                            "没有找到这首歌，请再说一次歌名。");
+                        selection = std::move(query);
+                        continue;
+                    } else {
+                        report(matches.status == MUSIC_TITLE_CANCELLED ? "查找已中断，请重试。" : "曲库索引读取失败");
+                        continue;
                     }
                 }
-                if (powering_off_.load() || uxQueueMessagesWaiting(commands_) ||
-                    (select_story_book && story_book.empty())) continue;
+                if (!voice_current() || powering_off_) continue;
+                select_story_book = candidate.book;
+                memcpy(command.path, candidate.path.c_str(), candidate.path.size() + 1);
             }
             uint32_t requested_track = low;
             if (play_file || (start_story && !select_story_book && command.path[0])) {
                 if (!music_index_find(&index,command.path,&requested_track) || requested_track < low || requested_track >= high) {
-                    if (command.action == MusicAction::StoryChapter || strchr(command.path,'/')) {
-                        Show("所选目录中未找到指定曲目"); continue;
+                    if (voice || command.action == MusicAction::StoryChapter || strchr(command.path,'/')) {
+                        report("所选目录中未找到指定曲目"); continue;
                     }
                     auto result = music_index_find_title_in(&index,command.path,&requested_track,low,high,[](void* context) {
                         auto* player = static_cast<MusicPlayer*>(context);
@@ -397,16 +473,16 @@ void MusicPlayer::Run() {
                         return !player->powering_off_.load() && !uxQueueMessagesWaiting(player->commands_);
                     },this);
                     if (result != MUSIC_TITLE_FOUND) {
-                        if (result == MUSIC_TITLE_AMBIGUOUS) Show("匹配到多首，请指定文件夹和文件名");
-                        if (result == MUSIC_TITLE_MISSING) Show("未找到指定曲目");
-                        if (result == MUSIC_TITLE_INDEX_ERROR) Show("曲库索引读取失败");
+                        if (result == MUSIC_TITLE_AMBIGUOUS) report("匹配到多首，请指定文件夹和文件名");
+                        if (result == MUSIC_TITLE_MISSING) report("未找到指定曲目");
+                        if (result == MUSIC_TITLE_INDEX_ERROR) report("曲库索引读取失败");
                         continue;
                     }
                 }
             }
             if (use_story && !start_story &&
                 (playlist.empty() || playlist.front() < low || playlist.back() >= high)) {
-                Show("故事目录已更改，请重新选择故事");
+                report("故事目录已更改，请重新选择故事");
                 continue;
             }
             if (start_story) {
@@ -419,13 +495,13 @@ void MusicPlayer::Run() {
                 }
                 char chapter[MUSIC_PATH_CAPACITY];
                 if (!select_story_book && !music_index_get(&index, requested_track, chapter)) {
-                    Show("章节索引读取失败");
+                    report("章节索引读取失败");
                     continue;
                 }
-                std::string book = select_story_book ? (repeat_story ? story_book : command.path) : pocket_media::StoryBook(chapter);
+                std::string book = select_story_book ? command.path : pocket_media::StoryBook(chapter);
                 uint32_t book_first, book_end;
                 if (!music_index_directory(&index, book.c_str(), &book_first, &book_end)) {
-                    Show("书目索引读取失败");
+                    report("书目索引读取失败");
                     continue;
                 }
                 std::vector<uint32_t> chapters;
@@ -435,12 +511,12 @@ void MusicPlayer::Run() {
                     if (!music_index_get(&index, id, chapter)) { chapters.clear(); break; }
                     if (pocket_media::StoryBook(chapter) == book) chapters.push_back(id);
                     if ((id - book_first) % 32 == 31) {
-                        if (powering_off_.load()) break;
+                        if (powering_off_ || !voice_current()) break;
                         vTaskDelay(1);
                     }
                 }
-                if (powering_off_.load()) continue;
-                if (chapters.empty()) { Show("所选故事目录中未找到章节"); continue; }
+                if (powering_off_ || !voice_current()) continue;
+                if (chapters.empty()) { report("所选故事目录中未找到章节"); continue; }
                 checkpoint();
                 close_track();
                 mark = pocket_media::StoryBookmark(book);
@@ -448,7 +524,7 @@ void MusicPlayer::Run() {
                 bool has_saved = !wanted.empty() && music_index_find(&index, wanted.c_str(), &saved) &&
                     std::binary_search(chapters.begin(), chapters.end(), saved);
                 if (select_story_book)
-                    requested_track = command.action == MusicAction::StoryBook && has_saved ? saved : chapters.front();
+                    requested_track = !repeat_story && command.action != MusicAction::StoryRestart && has_saved ? saved : chapters.front();
                 track = std::lower_bound(chapters.begin(), chapters.end(), requested_track) - chapters.begin();
                 resume_offset = has_saved && requested_track == saved && command.action != MusicAction::StoryChapter &&
                     command.action != MusicAction::StoryRestart
@@ -465,8 +541,10 @@ void MusicPlayer::Run() {
                 exact_request = false;
                 failed_tracks = 0;
                 playing = true;
+                reply(VoiceResult::Playing);
                 continue;
             }
+            if (!voice_current() || powering_off_) continue;
             if (command.action == MusicAction::Playlist) {
                 auto lists = pocket_media::Load("playlists");
                 auto* songs = cJSON_GetObjectItemCaseSensitive(lists.get(),command.path);
@@ -548,6 +626,7 @@ void MusicPlayer::Run() {
             }
             playing = true;
             announce = true;
+            reply(VoiceResult::Playing);
         }
         if (deadline && esp_timer_get_time() >= deadline) {
             checkpoint();
@@ -557,7 +636,6 @@ void MusicPlayer::Run() {
             Show(story ? "故事定时已结束" : "音乐定时已结束");
             continue;
         }
-        auto& app = Application::GetInstance();
         auto state = app.GetDeviceState();
         if (app.GetAudioService().IsMusicInterrupted() || app.InShortcutConversation() ||
             (state != kDeviceStateIdle && state != kDeviceStateWifiConfiguring && state != kDeviceStateActivating)) {
@@ -662,6 +740,12 @@ void MusicPlayer::Run() {
                 }
                 resampler.Process(mono, samples, pending);
             }
+            const bool enabled = LoudnessEnabled();
+            if (enabled != normalize) {
+                loudness.Reset();
+                normalize = enabled;
+            }
+            if (normalize) loudness.Process(pending);
         }
         if (esp_timer_get_time()-last_save >= 60000000LL) checkpoint();
         if (!app.GetAudioService().PushMusicPcm(pending, true)) {

@@ -32,6 +32,13 @@ typedef enum {
     MUSIC_TITLE_INDEX_ERROR, MUSIC_TITLE_CANCELLED
 } music_title_result_t;
 
+/* Visit tracks in index order. A visitor returning false ends the scan successfully. */
+music_title_result_t music_index_scan(music_index_t *index, uint32_t begin, uint32_t end,
+                                      bool (*visit)(uint32_t, const char *, void *),
+                                      bool (*keep_searching)(void *), void *context);
+/* Filename match quality: 2 for a whole title, 1 for a substring, 0 otherwise. */
+int music_name_match(const char *name, size_t length, const char *title, size_t wanted);
+
 music_title_result_t music_index_find_title_in(music_index_t *index, const char *title, uint32_t *track,
                                                uint32_t begin, uint32_t limit,
                                                bool (*keep_searching)(void *), void *context);

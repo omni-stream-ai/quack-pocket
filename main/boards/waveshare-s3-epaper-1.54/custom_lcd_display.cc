@@ -739,6 +739,7 @@ void CustomLcdDisplay::ShowVoiceHint(const char* text, int duration_ms) {
         lv_label_set_text(voice_hint_, text);
         lv_obj_align(voice_hint_, LV_ALIGN_BOTTOM_MID, 0, -2);
         if (standby_page_) lv_obj_move_foreground(standby_page_);
+        if (reminder_label_) lv_obj_move_foreground(reminder_label_);
         voice_hint_timer_ = lv_timer_create([](lv_timer_t* timer) {
             auto* self = static_cast<CustomLcdDisplay*>(lv_timer_get_user_data(timer));
             lv_obj_delete(self->voice_hint_);
@@ -749,6 +750,31 @@ void CustomLcdDisplay::ShowVoiceHint(const char* text, int duration_ms) {
     } else if (voice_hint_) {
         lv_obj_delete(voice_hint_);
         voice_hint_ = nullptr;
+    }
+    Unlock();
+}
+
+void CustomLcdDisplay::ShowReminder(const char* text) {
+    if (!Lock(3000)) return;
+    if (text) {
+        ResetSaver();
+        if (!reminder_label_) {
+            reminder_label_ = lv_label_create(lv_display_get_layer_top(display_));
+            lv_obj_set_width(reminder_label_, 190);
+            lv_obj_set_style_pad_all(reminder_label_, 8, 0);
+            lv_obj_set_style_text_align(reminder_label_, LV_TEXT_ALIGN_CENTER, 0);
+            lv_obj_set_style_text_font(reminder_label_, lv_obj_get_style_text_font(lv_display_get_screen_active(display_), 0), 0);
+            lv_obj_set_style_text_color(reminder_label_, lv_color_black(), 0);
+            lv_obj_set_style_bg_color(reminder_label_, lv_color_white(), 0);
+            lv_obj_set_style_bg_opa(reminder_label_, LV_OPA_COVER, 0);
+            lv_obj_set_style_border_width(reminder_label_, 1, 0);
+        }
+        lv_label_set_text(reminder_label_, text);
+        lv_obj_center(reminder_label_);
+        lv_obj_move_foreground(reminder_label_);
+    } else if (reminder_label_) {
+        lv_obj_delete(reminder_label_);
+        reminder_label_ = nullptr;
     }
     Unlock();
 }
@@ -955,7 +981,7 @@ void CustomLcdDisplay::UpdateSaver() {
         ResetSaver();
         return;
     }
-    if (standby_page_ || !saver_available_ || (!saver_allowed_ && !home_page_ && !network_home_) || menu_label_ || playback_page_ || (network_page_ && !network_home_) || setup_overlay_ ||
+    if (standby_page_ || reminder_label_ || !saver_available_ || (!saver_allowed_ && !home_page_ && !network_home_) || menu_label_ || playback_page_ || (network_page_ && !network_home_) || setup_overlay_ ||
         saver_layer_ || lv_tick_elaps(last_activity_) < 60000) return;
     saver_layer_ = lv_image_create(lv_display_get_screen_active(display_));
     lv_obj_add_flag(saver_layer_, LV_OBJ_FLAG_FLOATING);
